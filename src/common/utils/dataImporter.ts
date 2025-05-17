@@ -36,9 +36,15 @@ export const importData = async <T>(
 		}
 
 		const mappedData = jsonData.map(mapFunction);
-		await saveIntoDB(mappedData);
+		const BATCH_SIZE = 100;
 
-		return ServiceResponse.success("Berhasil mengimpor data", { totalImported: mappedData.length }, StatusCodes.OK);
+		for (let i = 0; i < mappedData.length; i += BATCH_SIZE) {
+			const batch = mappedData.slice(i, i + BATCH_SIZE);
+			await saveIntoDB(batch);
+		}
+
+		return ServiceResponse.success("Berhasil mengimpor data", mappedData, StatusCodes.OK);
+		// return ServiceResponse.success("Berhasil mengimpor data", { totalImported: mappedData.length }, StatusCodes.OK);
 	} catch (error) {
 		logger.error(error);
 		return ServiceResponse.failure("Gagal mengimpor data", null, StatusCodes.INTERNAL_SERVER_ERROR);

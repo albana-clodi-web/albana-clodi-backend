@@ -8,34 +8,35 @@ class ShippingCostService {
 		receiver_destination_id: number,
 		weight: number,
 		item_value: number,
-		cod: boolean,
+		cod: string,
 	) => {
 		try {
 			const API_KEY = process.env.RAJAONGKIR_SHIPPING_DELIVERY_API_KEY;
 			const BASE_URL = process.env.RAJAONGKIR_BASE_URL;
 
-			const formData = new URLSearchParams();
-			formData.append("shipper_destination_id", shipper_destination_id.toString());
-			formData.append("receiver_destination_id", receiver_destination_id.toString());
-			formData.append("weight", weight.toString());
-			formData.append("item_value", item_value.toString());
-			formData.append("cod", cod.toString());
+			const queryParams = new URLSearchParams({
+				shipper_destination_id: shipper_destination_id.toString(),
+				receiver_destination_id: receiver_destination_id.toString(),
+				weight: weight.toString(),
+				item_value: item_value.toString(),
+				cod: cod || "no",
+			});
 
-			const response = await fetch(`${BASE_URL}/calculate`, {
+			console.log(`URL: ${BASE_URL}/calculate?${queryParams.toString()}`);
+
+			const response = await fetch(`${BASE_URL}/calculate?${queryParams.toString()}`, {
 				method: "GET",
 				headers: {
-					key: API_KEY as string,
-					"content-type": "application/x-www-form-urlencoded",
+					"x-api-key": API_KEY as string,
 				},
-				body: formData,
 			});
 			const data = await response.json();
-
-			if (data.rajaongkir.status.code === 400) {
+			console.log(data);
+			if (data.meta && data.meta.code !== 200) {
 				return ServiceResponse.failure(data.rajaongkir.status.description, null, StatusCodes.BAD_REQUEST);
 			}
 
-			return ServiceResponse.success("Successfully calculated shipping cost", data.rajaongkir.results, StatusCodes.OK);
+			return ServiceResponse.success("Successfully calculated shipping cost", data.data, StatusCodes.OK);
 		} catch (error) {
 			logger.error(error);
 			return ServiceResponse.failure("Failed to calculate shipping cost", null, StatusCodes.INTERNAL_SERVER_ERROR);

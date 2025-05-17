@@ -7,7 +7,7 @@ import { ShippingCostController } from "./controller";
 import { ShippingCostParamsSchema, ShippingCostSchema } from "./model";
 
 export const shippingCostRegistry = new OpenAPIRegistry();
-export const locationRouter: Router = express.Router();
+export const shippingCostRouter: Router = express.Router();
 
 shippingCostRegistry.register("ShippingCost", ShippingCostSchema);
 
@@ -80,4 +80,4 @@ shippingCostRegistry.registerPath({
 
 const shippingCostController = new ShippingCostController();
 
-locationRouter.route("/calculate").get(validateRequest(ShippingCostParamsSchema), shippingCostController.calculate);
+shippingCostRouter.route("/calculate").get(validateRequest(ShippingCostParamsSchema), shippingCostController.calculate);
