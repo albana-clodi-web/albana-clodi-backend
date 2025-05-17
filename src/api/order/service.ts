@@ -1,21 +1,226 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
+import type { OrderWithRelations } from "@/common/types/orderExport";
+import { exportData } from "@/common/utils/dataExporter";
+import { importData } from "@/common/utils/dataImporter";
 import { logger } from "@/server";
+import { type CustomerCategories, Order, type Prisma, PrismaClient } from "@prisma/client";
 import type { PaymentStatus } from "@prisma/client";
 import { StatusCodes } from "http-status-codes";
-import type { CreateOrderType, UpdateOrderType } from "./model";
+import xlsx from "xlsx";
+import { CustomerRepository } from "../customer/customerRepository";
+import { DeliveryPlaceRepository } from "../delivery-place/repository";
+import { PaymentMethodRepository } from "../payment-method/paymentMethodRepository";
+import { ProductVariantRepository } from "../product-variant/productVariantRepository";
+import { ProductRepository } from "../product/productRepository";
+import { SalesChannelRepository } from "../sales-channel/salesChannelRepository";
+import type { CreateOrderType, OrderParamsType, OrderQueryType, UpdateOrderType } from "./model";
 import { type OrderRepository, orderRepository } from "./repository";
+
+interface GetAllOrdersParams {
+	startDate?: string;
+	endDate?: string;
+	month?: string;
+	year?: string;
+	week?: string;
+}
 
 class OrderService {
 	private readonly orderRepo: OrderRepository;
+	private readonly customerRepo: CustomerRepository["customer"];
+	private readonly productRepo: ProductRepository;
+	private readonly salesChannelRepo: SalesChannelRepository;
+	private readonly deliveryPlaceRepo: DeliveryPlaceRepository;
+	private readonly productVariantRepo: ProductVariantRepository;
+	private readonly paymentRepo: PaymentMethodRepository;
 
-	constructor() {
+	constructor(
+		customerRepository = new CustomerRepository(new PrismaClient()),
+		productRepository = new ProductRepository(new PrismaClient()),
+		salesChannelRepository = new SalesChannelRepository(new PrismaClient()),
+		deliveryPlaceRepository = new DeliveryPlaceRepository(new PrismaClient()),
+		productVariantRepository = new ProductVariantRepository(new PrismaClient()),
+		paymentMethodRepository = new PaymentMethodRepository(new PrismaClient()),
+	) {
 		this.orderRepo = orderRepository;
+		this.customerRepo = customerRepository.customer;
+		this.productRepo = productRepository;
+		this.salesChannelRepo = salesChannelRepository;
+		this.deliveryPlaceRepo = deliveryPlaceRepository;
+		this.productVariantRepo = productVariantRepository;
+		this.paymentRepo = paymentMethodRepository;
 	}
 
-	public getAll = async () => {
+	public getAll = async (query: OrderQueryType["query"]) => {
 		try {
-			const result = await this.orderRepo.client.order.findMany();
-			return ServiceResponse.success("Berhasil mengambil data order", result, StatusCodes.OK);
+			type OrderFilter = Prisma.OrderWhereInput;
+
+			console.log("==========QUERY=========");
+			console.log(query);
+			console.log("=========================");
+
+			const filter: OrderFilter = {};
+
+			const queryParams = {
+				salesChannelId: query.salesChannelId as string | undefined,
+				customerCategory: query.customerCategory as string | undefined,
+				paymentStatus: query.paymentStatus as PaymentStatus | undefined,
+				productId: query.productId as string | undefined,
+				paymentMethodId: query.paymentMethodId as string | undefined,
+				orderDate: query.orderDate as string | undefined,
+				orderMonth: query.orderMonth as string | undefined,
+				orderYear: query.orderYear as string | undefined,
+				startDate: query.startDate as string | undefined,
+				endDate: query.endDate as string | undefined,
+				ordererCustomerId: query.ordererCustomerId as string | undefined,
+				deliveryTargetCustomerId: query.deliveryTargetCustomerId as string | undefined,
+				deliveryPlaceId: query.deliveryPlaceId as string | undefined,
+				orderStatus: query.orderStatus as string | undefined,
+				search: query.search as string | undefined,
+				sort: query.sort as string | undefined,
+				order: query.order as "asc" | "desc" | undefined,
+			};
+
+			// Filter berdasarkan sales channel
+			if (queryParams.salesChannelId) {
+				filter.salesChannelId = queryParams.salesChannelId;
+			}
+
+			// Filter berdasarkan tanggal order
+			if (queryParams.orderDate) {
+				const date = new Date(queryParams.orderDate);
+				filter.orderDate = {
+					gte: new Date(date.setHours(0, 0, 0, 0)),
+					lte: new Date(date.setHours(23, 59, 59, 999)),
+				};
+			}
+
+			// Filter berdasarkan bulan dan tahun
+			if (queryParams.orderMonth && queryParams.orderYear) {
+				const month = Number.parseInt(queryParams.orderMonth);
+				const year = Number.parseInt(queryParams.orderYear);
+				filter.orderDate = {
+					gte: new Date(year, month - 1, 1),
+					lte: new Date(year, month, 0, 23, 59, 59, 999),
+				};
+			} else if (queryParams.orderYear) {
+				// Filter hanya berdasarkan tahun
+				const year = Number.parseInt(queryParams.orderYear);
+				filter.orderDate = {
+					gte: new Date(year, 0, 1),
+					lte: new Date(year, 11, 31, 23, 59, 59, 999),
+				};
+			}
+
+			// Filter berdasarkan range tanggal
+			if (queryParams.startDate && queryParams.endDate) {
+				filter.orderDate = {
+					gte: new Date(new Date(queryParams.startDate).setHours(0, 0, 0, 0)),
+					lte: new Date(new Date(queryParams.endDate).setHours(23, 59, 59, 999)),
+				};
+			}
+
+			// Filter berdasarkan kategori customer
+			if (queryParams.customerCategory) {
+				filter.OR = [
+					{
+						OrdererCustomer: {
+							is: { category: { equals: queryParams.customerCategory as CustomerCategories } },
+						},
+					},
+					{
+						DeliveryTargetCustomer: {
+							is: { category: { equals: queryParams.customerCategory as CustomerCategories } },
+						},
+					},
+				];
+			}
+
+			// Filter berdasarkan orderer customer
+			if (queryParams.ordererCustomerId) {
+				filter.ordererCustomerId = queryParams.ordererCustomerId;
+			}
+
+			// Filter berdasarkan delivery target customer
+			if (queryParams.deliveryTargetCustomerId) {
+				filter.deliveryTargetCustomerId = queryParams.deliveryTargetCustomerId;
+			}
+
+			// Filter berdasarkan delivery place
+			if (queryParams.deliveryPlaceId) {
+				filter.deliveryPlaceId = queryParams.deliveryPlaceId;
+			}
+
+			// Filter berdasarkan status order
+			if (queryParams.orderStatus) {
+				// Validasi nilai status order
+				const validPaymentStatuses = ["settlement", "pending", "cancel", "installments"];
+				const paymentStatus = validPaymentStatuses.includes(queryParams.orderStatus)
+					? (queryParams.orderStatus as PaymentStatus)
+					: undefined;
+
+				if (paymentStatus) {
+					if (filter.OrderDetail) {
+						filter.OrderDetail.paymentStatus = paymentStatus;
+					} else {
+						filter.OrderDetail = {
+							paymentStatus: paymentStatus,
+						};
+					}
+				}
+			}
+
+			console.log("==========FILTER=========");
+			console.log(filter);
+			console.log("=========================");
+
+			const result = await this.orderRepo.client.order.findMany({
+				where: filter,
+				include: {
+					SalesChannel: true,
+					DeliveryPlace: true,
+					OrdererCustomer: true,
+					DeliveryTargetCustomer: true,
+					OrderDetail: {
+						include: {
+							OrderProducts: {
+								where: queryParams.productId ? { productId: queryParams.productId } : undefined,
+								include: {
+									Product: {
+										include: {
+											productVariants: true,
+										},
+									},
+								},
+							},
+							PaymentMethod:
+								queryParams.paymentMethodId || queryParams.paymentStatus
+									? {
+											where: {
+												...(queryParams.paymentMethodId && { id: queryParams.paymentMethodId }),
+												...(queryParams.paymentStatus && { status: queryParams.paymentStatus }),
+											},
+										}
+									: true,
+						},
+					},
+					ShippingServices: true,
+				},
+			});
+
+			// Filter hasil jika ada filter untuk payment method atau product
+			let filteredResult = result;
+
+			if (queryParams.paymentMethodId || queryParams.paymentStatus) {
+				filteredResult = result.filter((order) => order.OrderDetail && order.OrderDetail.PaymentMethod !== null);
+			}
+
+			if (queryParams.productId) {
+				filteredResult = filteredResult.filter(
+					(order) => order.OrderDetail && order.OrderDetail.OrderProducts.length > 0,
+				);
+			}
+
+			return ServiceResponse.success("Berhasil mengambil data order", filteredResult, StatusCodes.OK);
 		} catch (error) {
 			logger.error(error);
 			return ServiceResponse.failure("Gagal mengambil data order", null, StatusCodes.INTERNAL_SERVER_ERROR);
@@ -26,6 +231,27 @@ class OrderService {
 		try {
 			const result = await this.orderRepo.client.order.findUnique({
 				where: { id },
+				include: {
+					SalesChannel: true,
+					DeliveryPlace: true,
+					OrdererCustomer: true,
+					DeliveryTargetCustomer: true,
+					OrderDetail: {
+						include: {
+							OrderProducts: {
+								include: {
+									Product: {
+										include: {
+											productVariants: true,
+										},
+									},
+								},
+							},
+							PaymentMethod: true,
+						},
+					},
+					ShippingServices: true,
+				},
 			});
 
 			if (!result) {
@@ -39,12 +265,14 @@ class OrderService {
 		}
 	};
 
-	public create = async (data: CreateOrderType) => {
+	public create = async (data: CreateOrderType["body"]) => {
 		try {
+			let totalPrice = 0;
+
 			// Cek customer pemesan
-			if (data.body.order.ordererCustomerId) {
+			if (data.order.ordererCustomerId) {
 				const ordererCustomer = await this.orderRepo.client.customer.findUnique({
-					where: { id: data.body.order.ordererCustomerId },
+					where: { id: data.order.ordererCustomerId },
 				});
 				if (!ordererCustomer) {
 					return ServiceResponse.failure("Data customer pemesan tidak ditemukan", null, StatusCodes.NOT_FOUND);
@@ -52,9 +280,9 @@ class OrderService {
 			}
 
 			// Cek customer tujuan pengiriman
-			if (data.body.order.deliveryTargetCustomerId) {
+			if (data.order.deliveryTargetCustomerId) {
 				const deliveryTargetCustomer = await this.orderRepo.client.customer.findUnique({
-					where: { id: data.body.order.deliveryTargetCustomerId },
+					where: { id: data.order.deliveryTargetCustomerId },
 				});
 				if (!deliveryTargetCustomer) {
 					return ServiceResponse.failure(
@@ -66,9 +294,9 @@ class OrderService {
 			}
 
 			// Cek tempat pengiriman
-			if (data.body.order.deliveryPlaceId) {
+			if (data.order.deliveryPlaceId) {
 				const deliveryPlace = await this.orderRepo.client.deliveryPlace.findUnique({
-					where: { id: data.body.order.deliveryPlaceId },
+					where: { id: data.order.deliveryPlaceId },
 				});
 				if (!deliveryPlace) {
 					return ServiceResponse.failure("Data tempat pengiriman tidak ditemukan", null, StatusCodes.NOT_FOUND);
@@ -76,41 +304,92 @@ class OrderService {
 			}
 
 			// Cek saluran penjualan
-			if (data.body.order.salesChannelId) {
+			if (data.order.salesChannelId) {
 				const salesChannel = await this.orderRepo.client.salesChannel.findUnique({
-					where: { id: data.body.order.salesChannelId },
+					where: { id: data.order.salesChannelId },
 				});
 				if (!salesChannel) {
 					return ServiceResponse.failure("Data saluran penjualan tidak ditemukan", null, StatusCodes.NOT_FOUND);
 				}
 			}
 
-			// Cek produk dan metode pembayaran untuk setiap detail order
-			for (const orderDetail of data.body.orderDetails) {
-				if (orderDetail.detail.productId) {
+			// Validasi data detail order
+			if (data.orderDetail.detail) {
+				// Validasi kode order jika ada
+				if (data.orderDetail.detail.code) {
+					const existingOrder = await this.orderRepo.client.orderDetail.findFirst({
+						where: { code: data.orderDetail.detail.code },
+					});
+
+					if (existingOrder) {
+						return ServiceResponse.failure("Kode order sudah digunakan", null, StatusCodes.BAD_REQUEST);
+					}
+				}
+
+				// Validasi otherFees jika ada
+				if (data.orderDetail.detail.otherFees) {
+					const { packaging, insurance, discount, ongkir1kg } = data.orderDetail.detail.otherFees as {
+						packaging?: number;
+						insurance?: number;
+						discount?: {
+							value: number;
+							type: "percent" | "nominal";
+						};
+						ongkir1kg?: number;
+					};
+					if (packaging && typeof packaging !== "number") {
+						return ServiceResponse.failure("Biaya packaging harus berupa angka", null, StatusCodes.BAD_REQUEST);
+					}
+					if (insurance && typeof insurance !== "number") {
+						return ServiceResponse.failure("Biaya asuransi harus berupa angka", null, StatusCodes.BAD_REQUEST);
+					}
+					if (discount) {
+						if (typeof discount !== "object" || discount === null) {
+							return ServiceResponse.failure("Diskon harus berupa objek", null, StatusCodes.BAD_REQUEST);
+						}
+						if (typeof discount.value !== "number") {
+							return ServiceResponse.failure("Nilai diskon harus berupa angka", null, StatusCodes.BAD_REQUEST);
+						}
+						if (discount.type !== "percent" && discount.type !== "nominal") {
+							return ServiceResponse.failure(
+								"Tipe diskon harus 'percent' atau 'nominal'",
+								null,
+								StatusCodes.BAD_REQUEST,
+							);
+						}
+					}
+					if (ongkir1kg && typeof ongkir1kg !== "number") {
+						return ServiceResponse.failure("Ongkir 1kg harus berupa angka", null, StatusCodes.BAD_REQUEST);
+					}
+				}
+			}
+
+			if (data.orderDetail.paymentMethod?.id) {
+				const paymentMethod = await this.orderRepo.client.paymentMethod.findUnique({
+					where: { id: data.orderDetail.paymentMethod.id },
+				});
+				if (!paymentMethod) {
+					return ServiceResponse.failure("Data metode pembayaran tidak ditemukan", null, StatusCodes.NOT_FOUND);
+				}
+			}
+
+			// Cek produk untuk order products
+			for (const orderProduct of data.orderDetail.orderProducts) {
+				if (orderProduct.productId) {
 					const product = await this.orderRepo.client.product.findUnique({
-						where: { id: orderDetail.detail.productId },
+						where: { id: orderProduct.productId },
 					});
 					if (!product) {
 						return ServiceResponse.failure("Data produk tidak ditemukan", null, StatusCodes.NOT_FOUND);
 					}
 				}
+			}
 
-				if (orderDetail.paymentMethod?.id) {
-					const paymentMethod = await this.orderRepo.client.paymentMethod.findUnique({
-						where: { id: orderDetail.paymentMethod.id },
-					});
-					if (!paymentMethod) {
-						return ServiceResponse.failure("Data metode pembayaran tidak ditemukan", null, StatusCodes.NOT_FOUND);
-					}
-				}
-
-				if (orderDetail.detail.shippingServiceId) {
-					const shippingService = await this.orderRepo.client.shippingService.findUnique({
-						where: { id: orderDetail.detail.shippingServiceId },
-					});
-					if (!shippingService) {
-						return ServiceResponse.failure("Data layanan pengiriman tidak ditemukan", null, StatusCodes.NOT_FOUND);
+			// Validasi shipping services jika ada
+			if (data.orderDetail.shippingServices && data.orderDetail.shippingServices.length > 0) {
+				for (const service of data.orderDetail.shippingServices) {
+					if (!service.shippingName || !service.serviceName) {
+						return ServiceResponse.failure("Data shipping service tidak lengkap", null, StatusCodes.BAD_REQUEST);
 					}
 				}
 			}
@@ -118,57 +397,208 @@ class OrderService {
 			const result = await this.orderRepo.client.$transaction(async (prisma) => {
 				const createdOrder = await prisma.order.create({
 					data: {
-						ordererCustomerId: data.body.order.ordererCustomerId,
-						deliveryTargetCustomerId: data.body.order.deliveryTargetCustomerId,
-						deliveryPlaceId: data.body.order.deliveryPlaceId,
-						salesChannelId: data.body.order.salesChannelId,
-						orderDate: data.body.order.orderDate ? new Date(data.body.order.orderDate) : undefined,
-						note: data.body.order.note,
+						ordererCustomerId: data.order.ordererCustomerId,
+						deliveryTargetCustomerId: data.order.deliveryTargetCustomerId,
+						deliveryPlaceId: data.order.deliveryPlaceId,
+						salesChannelId: data.order.salesChannelId,
+						orderDate: data.order.orderDate ? new Date(data.order.orderDate) : undefined,
+						note: data.order.note,
 					},
 				});
 
-				const orderDetailsPromises = data.body.orderDetails.map(async (orderDetailData) => {
-					const createdOrderDetail = await prisma.orderDetail.create({
-						data: {
-							orderId: createdOrder.id,
-							productId: orderDetailData.detail.productId,
-							paymentMethodId: orderDetailData.paymentMethod?.id,
-							code: orderDetailData.detail.code,
-							productQty: orderDetailData.detail.productQty,
-							shippingServiceId: orderDetailData.detail.shippingServiceId,
-							otherFees: orderDetailData.detail.otherFees,
-							finalPrice: orderDetailData.detail.finalPrice,
-							paymentStatus: orderDetailData.paymentMethod?.status
-								? (orderDetailData.paymentMethod?.status as PaymentStatus)
-								: undefined,
-							paymentDate: orderDetailData.paymentMethod?.date
-								? new Date(orderDetailData.paymentMethod?.date)
-								: undefined,
-							receiptNumber: orderDetailData.detail.receiptNumber,
+				// Ambil data customer untuk menentukan kategori harga
+				const customer = await prisma.customer.findUnique({
+					where: { id: data.order.ordererCustomerId },
+					select: { category: true },
+				});
+
+				if (!customer) {
+					throw new Error("Data customer tidak ditemukan");
+				}
+
+				// Hitung harga produk berdasarkan kategori customer
+				for (const orderProduct of data.orderDetail.orderProducts) {
+					if (!orderProduct.productId) continue;
+
+					const product = await prisma.product.findUnique({
+						where: { id: orderProduct.productId },
+						include: {
+							productVariants: {
+								include: {
+									productPrices: true,
+								},
+							},
 						},
 					});
 
-					if (orderDetailData.shippingServices && orderDetailData.shippingServices.length > 0) {
-						await Promise.all(
-							orderDetailData.shippingServices.map((shippingService) =>
-								prisma.shippingService.create({
-									data: {
-										...shippingService,
-										orderDetailId: createdOrderDetail.id,
-									},
-								}),
-							),
+					if (!product) continue;
+
+					// Ambil harga dari product price berdasarkan kategori customer
+					let productPrice = 0;
+					const variant = product.productVariants[0]; // Ambil variant pertama jika ada
+
+					if (variant?.productPrices && variant.productPrices.length > 0) {
+						const priceData = variant.productPrices[0]; // Ambil data harga pertama dari array
+
+						// Tentukan harga berdasarkan kategori customer
+						switch (customer.category) {
+							case "CUSTOMER":
+							case "DROPSHIPPER":
+								productPrice = priceData.normal || 0;
+								break;
+							case "MEMBER":
+								productPrice = priceData.member || priceData.normal || 0;
+								break;
+							case "RESELLER":
+								productPrice = priceData.reseller || priceData.normal || 0;
+								break;
+							case "AGENT":
+								productPrice = priceData.agent || priceData.normal || 0;
+								break;
+							default:
+								productPrice = priceData.normal || 0;
+						}
+					}
+
+					// Tambahkan ke total price (harga * quantity)
+					totalPrice += productPrice * orderProduct.productQty;
+				}
+
+				// Tambahkan other fees jika ada
+				if (data.orderDetail.detail.otherFees) {
+					const otherFees = data.orderDetail.detail.otherFees;
+
+					// Tambahkan biaya asuransi jika ada
+					if (otherFees.insurance) {
+						totalPrice += otherFees.insurance;
+					}
+
+					// Tambahkan biaya packaging jika ada
+					if (otherFees.packaging) {
+						totalPrice += otherFees.packaging;
+					}
+
+					// Tambahkan biaya untuk order berdasarkan berat
+					if (otherFees.weight) {
+						const orderWeight = 1; // Berat order dalam kg
+						const pricePerKg = otherFees.weight; // Harga per kg dari otherFees.weight
+						totalPrice += orderWeight * pricePerKg;
+					}
+
+					// Tambahkan biaya pengiriman jika ada
+					if (otherFees.shippingCost) {
+						if (otherFees.shippingCost.cost) {
+							totalPrice += otherFees.shippingCost.cost;
+						}
+					}
+
+					// Proses discount jika ada
+					if (otherFees.discount) {
+						// Jika discount dalam bentuk persentase
+						if (otherFees.discount.type === "percent" && otherFees.discount.value) {
+							const discountAmount = (totalPrice * otherFees.discount.value) / 100;
+							totalPrice -= discountAmount;
+						}
+						// Jika discount dalam bentuk nominal
+						else if (otherFees.discount.type === "nominal" && otherFees.discount.value) {
+							totalPrice -= otherFees.discount.value;
+						}
+					}
+				}
+
+				// Buat order detail
+				const createdOrderDetail = await prisma.orderDetail.create({
+					data: {
+						orderId: createdOrder.id,
+						paymentMethodId: data.orderDetail.paymentMethod?.id,
+						code: data.orderDetail.detail.code,
+						otherFees: data.orderDetail.detail.otherFees,
+						finalPrice: totalPrice,
+						paymentStatus: data.orderDetail.paymentMethod?.status
+							? (data.orderDetail.paymentMethod?.status.toUpperCase() as PaymentStatus)
+							: undefined,
+						paymentDate: data.orderDetail.paymentMethod?.date
+							? new Date(data.orderDetail.paymentMethod?.date)
+							: undefined,
+						receiptNumber: data.orderDetail.detail.receiptNumber,
+					},
+				});
+
+				// Buat order products
+				const orderProductsPromises = data.orderDetail.orderProducts.map(async (orderProduct) => {
+					if (!orderProduct.productId) {
+						return ServiceResponse.failure("productId is required", null, StatusCodes.BAD_REQUEST);
+					}
+
+					const productVariant = await prisma.productVariant.findUnique({
+						where: {
+							id: orderProduct.productVariantId,
+						},
+					});
+
+					if (!productVariant) {
+						return ServiceResponse.failure("product variant is not found", null, StatusCodes.NOT_FOUND);
+					}
+
+					if (!productVariant || (productVariant.stock !== null && productVariant.stock <= 0)) {
+						return ServiceResponse.failure(
+							`Stok produk dengan ID ${orderProduct.productVariantId} tidak tersedia`,
+							null,
+							StatusCodes.BAD_REQUEST,
 						);
 					}
 
-					return createdOrderDetail;
+					await prisma.productVariant.update({
+						where: {
+							id: orderProduct.productVariantId,
+						},
+						data: {
+							stock: {
+								decrement: orderProduct.productQty,
+							},
+						},
+					});
+
+					return await prisma.orderProduct.create({
+						data: {
+							orderId: createdOrder.id,
+							orderDetailId: createdOrderDetail.id,
+							productId: orderProduct.productId,
+							productQty: orderProduct.productQty,
+						},
+					});
 				});
 
-				const orderDetails = await Promise.all(orderDetailsPromises);
+				await Promise.all(orderProductsPromises);
+
+				// Buat shipping services jika ada
+				if (data.orderDetail.shippingServices && data.orderDetail.shippingServices.length > 0) {
+					const shippingServicesPromises = data.orderDetail.shippingServices.map((shippingService) =>
+						prisma.shippingService.create({
+							data: {
+								orderId: createdOrder.id,
+								shippingName: shippingService.shippingName,
+								serviceName: shippingService.serviceName,
+								weight: shippingService.weight,
+								isCod: shippingService.isCod,
+								shippingCost: shippingService.shippingCost,
+								shippingCashback: shippingService.shippingCashback,
+								shippingCostNet: shippingService.shippingCostNet,
+								grandtotal: shippingService.grandtotal,
+								serviceFee: shippingService.serviceFee,
+								netIncome: shippingService.netIncome,
+								etd: shippingService.etd,
+								type: shippingService.type,
+							},
+						}),
+					);
+
+					await Promise.all(shippingServicesPromises);
+				}
 
 				return {
 					...createdOrder,
-					orderDetails,
+					orderDetail: createdOrderDetail,
 				};
 			});
 
@@ -183,49 +613,942 @@ class OrderService {
 		}
 	};
 
-	public update = async (id: string, data: Partial<UpdateOrderType>) => {
+	public update = async (id: string, data: Partial<UpdateOrderType>["body"]) => {
 		try {
-			const existingDeliveryPlace = await this.orderRepo.client.order.findUnique({
-				where: { id },
-			});
+			let totalPrice = 0;
 
-			if (!existingDeliveryPlace) {
-				return ServiceResponse.failure("Data order tidak ditemukan", null, StatusCodes.NOT_FOUND);
-			}
-
-			const result = await this.orderRepo.client.order.update({
+			const existingOrder = await this.orderRepo.client.order.findUnique({
 				where: { id },
-				data: {
-					...data,
-					updatedAt: new Date(),
+				include: {
+					SalesChannel: true,
+					DeliveryPlace: true,
+					OrdererCustomer: true,
+					DeliveryTargetCustomer: true,
+					OrderDetail: {
+						include: {
+							OrderProducts: {
+								include: {
+									Product: true,
+								},
+							},
+							PaymentMethod: true,
+						},
+					},
+					ShippingServices: true,
 				},
 			});
 
-			return ServiceResponse.success("Berhasil memperbarui data order", result, StatusCodes.OK);
+			if (!existingOrder) {
+				return ServiceResponse.failure("Data order tidak ditemukan", null, StatusCodes.NOT_FOUND);
+			}
+
+			// Cek customer pemesan jika ada perubahan
+			if (data?.order?.ordererCustomerId) {
+				const ordererCustomer = await this.orderRepo.client.customer.findUnique({
+					where: { id: data.order.ordererCustomerId },
+				});
+				if (!ordererCustomer) {
+					return ServiceResponse.failure("Data customer pemesan tidak ditemukan", null, StatusCodes.NOT_FOUND);
+				}
+			}
+
+			// Cek customer tujuan pengiriman jika ada perubahan
+			if (data?.order?.deliveryTargetCustomerId) {
+				const deliveryTargetCustomer = await this.orderRepo.client.customer.findUnique({
+					where: { id: data.order.deliveryTargetCustomerId },
+				});
+				if (!deliveryTargetCustomer) {
+					return ServiceResponse.failure(
+						"Data customer tujuan pengiriman tidak ditemukan",
+						null,
+						StatusCodes.NOT_FOUND,
+					);
+				}
+			}
+
+			// Cek tempat pengiriman jika ada perubahan
+			if (data?.order?.deliveryPlaceId) {
+				const deliveryPlace = await this.orderRepo.client.deliveryPlace.findUnique({
+					where: { id: data.order.deliveryPlaceId },
+				});
+				if (!deliveryPlace) {
+					return ServiceResponse.failure("Data tempat pengiriman tidak ditemukan", null, StatusCodes.NOT_FOUND);
+				}
+			}
+
+			// Cek saluran penjualan jika ada perubahan
+			if (data?.order?.salesChannelId) {
+				const salesChannel = await this.orderRepo.client.salesChannel.findUnique({
+					where: { id: data.order.salesChannelId },
+				});
+				if (!salesChannel) {
+					return ServiceResponse.failure("Data saluran penjualan tidak ditemukan", null, StatusCodes.NOT_FOUND);
+				}
+			}
+
+			// Cek metode pembayaran untuk detail order jika ada perubahan
+			if (data?.orderDetail?.paymentMethod?.id) {
+				const paymentMethod = await this.orderRepo.client.paymentMethod.findUnique({
+					where: { id: data.orderDetail.paymentMethod.id },
+				});
+				if (!paymentMethod) {
+					return ServiceResponse.failure("Data metode pembayaran tidak ditemukan", null, StatusCodes.NOT_FOUND);
+				}
+			}
+
+			if (data?.orderDetail?.orderProducts && data.orderDetail.orderProducts.length > 0) {
+				// Ambil data customer untuk menentukan kategori harga
+				const customer = await this.orderRepo.client.customer.findUnique({
+					where: { id: data.order?.ordererCustomerId },
+					select: { category: true },
+				});
+
+				// Ambil data produk untuk menghitung total harga
+				const productIds = data.orderDetail.orderProducts
+					.map((product) => product.productId)
+					.filter((id): id is string => id !== undefined);
+
+				const products = await this.orderRepo.client.product.findMany({
+					where: {
+						id: {
+							in: productIds,
+						},
+					},
+					include: {
+						productVariants: {
+							include: {
+								productPrices: true,
+							},
+						},
+					},
+				});
+
+				// Hitung total harga berdasarkan produk dan kuantitas
+				for (const orderProduct of data.orderDetail.orderProducts) {
+					if (!orderProduct.productId) continue;
+
+					const product = products.find((p) => p.id === orderProduct.productId);
+					if (!product || !product.productVariants || product.productVariants.length === 0) continue;
+
+					// Cari variant yang sesuai dengan productVariantId jika ada
+					let variant = product.productVariants[0]; // Default ke variant pertama
+					if (orderProduct.productVariantId) {
+						const matchingVariant = product.productVariants.find((v) => v.id === orderProduct.productVariantId);
+						if (matchingVariant) {
+							variant = matchingVariant;
+						}
+					}
+
+					if (!variant?.stock || !orderProduct.productQty || variant.stock < orderProduct.productQty) {
+						return ServiceResponse.failure(
+							`Stok produk dengan ID ${orderProduct.productVariantId} tidak tersedia`,
+							null,
+							StatusCodes.BAD_REQUEST,
+						);
+					}
+
+					if (variant?.productPrices && variant.productPrices.length > 0) {
+						const priceData = variant.productPrices[0];
+
+						// Tentukan harga berdasarkan kategori customer
+						let productPrice = 0;
+						if (customer) {
+							switch (customer.category) {
+								case "CUSTOMER":
+								case "DROPSHIPPER":
+									productPrice = priceData.normal || 0;
+									break;
+								case "MEMBER":
+									productPrice = priceData.member || priceData.normal || 0;
+									break;
+								case "RESELLER":
+									productPrice = priceData.reseller || priceData.normal || 0;
+									break;
+								case "AGENT":
+									productPrice = priceData.agent || priceData.normal || 0;
+									break;
+								default:
+									productPrice = priceData.normal || 0;
+							}
+						} else {
+							productPrice = priceData.normal || 0;
+						}
+
+						// Dapatkan quantity produk saat ini
+						const productQty = orderProduct.productQty || 1;
+
+						// Cari produk yang sama di order yang sudah ada jika ada
+						let existingProductQty = 0;
+						if (existingOrder?.OrderDetail?.OrderProducts) {
+							const existingProduct = existingOrder.OrderDetail.OrderProducts.find(
+								(p) => p.productId === orderProduct.productId && !orderProduct.productVariantId,
+							);
+							if (existingProduct) {
+								existingProductQty = existingProduct.productQty || 0;
+							}
+						}
+
+						// Gunakan quantity dari order product saat ini, atau dari existing order jika tidak ada
+						const finalQty = productQty || existingProductQty || 1;
+
+						// Tambahkan ke total price (harga * quantity)
+						totalPrice += productPrice * finalQty;
+					}
+				}
+
+				// Tambahkan biaya lain jika ada
+				if (data.orderDetail.detail?.otherFees) {
+					const otherFees = data.orderDetail.detail.otherFees as {
+						packaging?: number;
+						insurance?: number;
+						discount?: {
+							value: number;
+							type: "percent" | "nominal";
+						};
+						ongkir1kg?: number;
+						weight?: number;
+						shippingCost?: {
+							shippingService: string;
+							type: string;
+							cost: number;
+						};
+					};
+
+					// Add packaging cost if exists
+					if (otherFees.packaging) {
+						totalPrice += otherFees.packaging;
+					}
+
+					// Add insurance cost if exists
+					if (otherFees.insurance) {
+						totalPrice += otherFees.insurance;
+					}
+
+					// Add cost based on order weight
+					if (otherFees.weight) {
+						const orderWeight = 1; // Order weight in kg
+						const pricePerKg = otherFees.weight; // Price per kg
+						totalPrice += orderWeight * pricePerKg;
+					}
+
+					// Add shipping cost if exists
+					if (otherFees.shippingCost) {
+						if (otherFees.shippingCost.cost) {
+							totalPrice += otherFees.shippingCost.cost;
+						}
+					}
+
+					// Proses discount jika ada
+					if (otherFees.discount) {
+						// Jika discount dalam bentuk persentase
+						if (otherFees.discount.type === "percent" && otherFees.discount.value) {
+							const discountAmount = (totalPrice * otherFees.discount.value) / 100;
+							totalPrice -= discountAmount;
+						}
+						// Jika discount dalam bentuk nominal
+						else if (otherFees.discount.type === "nominal" && otherFees.discount.value) {
+							totalPrice -= otherFees.discount.value;
+						}
+					}
+				}
+			}
+
+			const result = await this.orderRepo.client.$transaction(async (prisma) => {
+				const updatedOrder = await prisma.order.update({
+					where: { id },
+					data: {
+						ordererCustomerId: data?.order?.ordererCustomerId,
+						deliveryTargetCustomerId: data?.order?.deliveryTargetCustomerId,
+						deliveryPlaceId: data?.order?.deliveryPlaceId,
+						salesChannelId: data?.order?.salesChannelId,
+						orderDate: data?.order?.orderDate ? new Date(data.order.orderDate) : undefined,
+						note: data?.order?.note,
+					},
+				});
+
+				// Update order detail jika ada
+				if (data?.orderDetail) {
+					if (existingOrder.OrderDetail) {
+						// Update order detail yang sudah ada
+						await prisma.orderDetail.update({
+							where: { id: existingOrder.OrderDetail.id },
+							data: {
+								paymentMethodId: data.orderDetail.paymentMethod?.id,
+								code: data.orderDetail.detail?.code,
+								otherFees: data.orderDetail.detail?.otherFees,
+								finalPrice: totalPrice,
+								paymentStatus: data.orderDetail.paymentMethod?.status
+									? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
+									: undefined,
+								paymentDate: data.orderDetail.paymentMethod?.date
+									? new Date(data.orderDetail.paymentMethod.date)
+									: undefined,
+								receiptNumber: data.orderDetail.detail?.receiptNumber,
+							},
+						});
+					} else {
+						// Buat order detail baru jika belum ada
+						await prisma.orderDetail.create({
+							data: {
+								orderId: id,
+								paymentMethodId: data.orderDetail.paymentMethod?.id,
+								code: data.orderDetail.detail?.code,
+								otherFees: data.orderDetail.detail?.otherFees,
+								paymentStatus: data.orderDetail.paymentMethod?.status
+									? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
+									: undefined,
+								paymentDate: data.orderDetail.paymentMethod?.date
+									? new Date(data.orderDetail.paymentMethod.date)
+									: undefined,
+								receiptNumber: data.orderDetail.detail?.receiptNumber,
+							},
+						});
+					}
+				}
+
+				// Update order products jika ada
+				if (data?.orderDetail?.orderProducts && data.orderDetail.orderProducts.length > 0) {
+					// Hapus order products lama
+
+					await prisma.orderProduct.deleteMany({
+						where: { orderId: id },
+					});
+
+					// Buat order products baru
+					await Promise.all(
+						data.orderDetail.orderProducts.map(async (orderProduct) => {
+							if (!orderProduct.productId) {
+								return ServiceResponse.failure("productId tidak ditemukan", null, StatusCodes.BAD_REQUEST);
+							}
+
+							if (!orderProduct.productQty) {
+								return ServiceResponse.failure("productQty tidak ditemukan", null, StatusCodes.BAD_REQUEST);
+							}
+
+							existingOrder.OrderDetail?.OrderProducts.map(async (db_product) => {
+								const stockDifference = db_product.productQty - (orderProduct.productQty ?? 0);
+								console.log(
+									`Selisih stok yang akan dikembalikan: ${stockDifference} unit untuk produk dengan ID: ${orderProduct.productVariantId}`,
+								);
+								await prisma.productVariant.update({
+									where: {
+										id: orderProduct.productVariantId,
+									},
+									data: {
+										stock: {
+											increment: stockDifference,
+										},
+									},
+								});
+							});
+
+							return prisma.orderProduct.create({
+								data: {
+									orderId: id,
+									productId: orderProduct.productId,
+									productQty: orderProduct.productQty || 0,
+									orderDetailId: existingOrder.OrderDetail?.id ?? undefined,
+								},
+							});
+						}),
+					);
+				}
+
+				// Update shipping services jika ada
+				if (data?.orderDetail?.shippingServices && data.orderDetail.shippingServices.length > 0) {
+					// Hapus shipping services lama
+					await prisma.shippingService.deleteMany({
+						where: { orderId: id },
+					});
+
+					// Buat shipping services baru
+					await Promise.all(
+						data.orderDetail.shippingServices.map((shippingService) =>
+							prisma.shippingService.create({
+								data: {
+									orderId: id,
+									shippingName: shippingService.shippingName,
+									serviceName: shippingService.serviceName,
+									weight: shippingService.weight,
+									isCod: shippingService.isCod,
+									shippingCost: shippingService.shippingCost,
+									shippingCashback: shippingService.shippingCashback,
+									shippingCostNet: shippingService.shippingCostNet,
+									grandtotal: shippingService.grandtotal,
+									serviceFee: shippingService.serviceFee,
+									netIncome: shippingService.netIncome,
+									etd: shippingService.etd,
+									type: shippingService.type,
+								},
+							}),
+						),
+					);
+				}
+
+				// Ambil data order yang sudah diupdate beserta detailnya
+				return await prisma.order.findUnique({
+					where: { id },
+					include: {
+						SalesChannel: true,
+						DeliveryPlace: true,
+						OrdererCustomer: true,
+						DeliveryTargetCustomer: true,
+						OrderDetail: {
+							include: {
+								OrderProducts: {
+									include: {
+										Product: true,
+									},
+								},
+								PaymentMethod: true,
+							},
+						},
+						ShippingServices: true,
+					},
+				});
+			});
+
+			return ServiceResponse.success("Berhasil mengupdate data order", result, StatusCodes.OK);
 		} catch (error) {
 			logger.error(error);
-			return ServiceResponse.failure("Gagal memperbarui data order", null, StatusCodes.INTERNAL_SERVER_ERROR);
+			return ServiceResponse.failure(
+				"Gagal mengupdate data order",
+				(error as Error).message,
+				StatusCodes.INTERNAL_SERVER_ERROR,
+			);
 		}
 	};
 
 	public delete = async (id: string) => {
 		try {
-			const existingDeliveryPlace = await this.orderRepo.client.order.findUnique({
+			const existingOrder = await this.orderRepo.client.order.findUnique({
 				where: { id },
+				include: {
+					OrderDetail: {
+						include: {
+							OrderProducts: true,
+						},
+					},
+					ShippingServices: true,
+				},
 			});
 
-			if (!existingDeliveryPlace) {
+			if (!existingOrder) {
 				return ServiceResponse.failure("Data order tidak ditemukan", null, StatusCodes.NOT_FOUND);
 			}
 
-			const result = await this.orderRepo.client.order.delete({
-				where: { id },
+			// Hapus data terkait terlebih dahulu menggunakan transaksi
+			const result = await this.orderRepo.client.$transaction(async (prisma) => {
+				// Hapus shipping services jika ada
+				if (existingOrder.ShippingServices.length > 0) {
+					await prisma.shippingService.deleteMany({
+						where: { orderId: id },
+					});
+				}
+
+				// Hapus order products jika ada
+				if (existingOrder.OrderDetail?.OrderProducts && existingOrder.OrderDetail.OrderProducts.length > 0) {
+					await prisma.orderProduct.deleteMany({
+						where: { orderDetailId: existingOrder.OrderDetail.id },
+					});
+				}
+
+				// Hapus order detail jika ada
+				if (existingOrder.OrderDetail) {
+					await prisma.orderDetail.delete({
+						where: { id: existingOrder.OrderDetail.id },
+					});
+				}
+
+				// Hapus order
+				return await prisma.order.delete({
+					where: { id },
+				});
 			});
 
 			return ServiceResponse.success("Berhasil menghapus data order", result, StatusCodes.OK);
 		} catch (error) {
 			logger.error(error);
-			return ServiceResponse.failure("Gagal menghapus data order", null, StatusCodes.INTERNAL_SERVER_ERROR);
+			return ServiceResponse.failure(
+				"Gagal menghapus data order",
+				(error as Error).message,
+				StatusCodes.INTERNAL_SERVER_ERROR,
+			);
+		}
+	};
+
+	public exportOrders = async (params: GetAllOrdersParams) => {
+		try {
+			const formatter = new Intl.DateTimeFormat("id-ID", {
+				timeZone: "Asia/Jakarta",
+				dateStyle: "short",
+			});
+
+			return exportData<OrderWithRelations>(
+				params,
+				async (where): Promise<OrderWithRelations[]> => {
+					const queryParams = {
+						productId: undefined as string | undefined,
+						paymentMethodId: undefined as string | undefined,
+						paymentStatus: undefined as PaymentStatus | undefined,
+					};
+
+					// Ambil data order dengan relasi yang dibutuhkan
+					const orders = await this.orderRepo.client.order.findMany({
+						where: where as Prisma.OrderWhereInput,
+						include: {
+							SalesChannel: true,
+							DeliveryPlace: true,
+							OrdererCustomer: true,
+							DeliveryTargetCustomer: true,
+							OrderDetail: {
+								include: {
+									OrderProducts: {
+										where: queryParams.productId ? { productId: queryParams.productId } : undefined,
+										include: {
+											Product: {
+												include: {
+													productVariants: true,
+												},
+											},
+										},
+									},
+									PaymentMethod:
+										queryParams.paymentMethodId || queryParams.paymentStatus
+											? {
+													where: {
+														...(queryParams.paymentMethodId && { id: queryParams.paymentMethodId }),
+														...(queryParams.paymentStatus && { status: queryParams.paymentStatus }),
+													},
+												}
+											: true,
+								},
+							},
+							ShippingServices: true,
+						},
+						orderBy: { createdAt: "desc" },
+					});
+
+					return orders as unknown as OrderWithRelations[];
+				},
+				(order: OrderWithRelations, index: number) => {
+					const totalItems =
+						order.OrderDetail?.OrderProducts?.reduce((sum: number, op) => sum + (op.productQty || 0), 0) ?? 0;
+					const productList =
+						order.OrderDetail?.OrderProducts?.map((op) => {
+							const variants = op.Product?.productVariants || [];
+							const variantInfo =
+								variants.length > 0 ? `(SKU: ${variants.map((v) => v?.sku || "N/A").join(", ")})` : "";
+
+							// Format nama produk dengan SKU dan jumlah yang lebih mudah dibaca
+							return `${op.Product?.name || "Produk"} ${variantInfo} x${op.productQty || 0}`;
+						}).join(", ") ?? "";
+
+					const shippingCost = order.OrderDetail?.otherFees?.shippingCost?.cost ?? 0;
+					const otherFees =
+						(order.OrderDetail?.otherFees?.insurance ?? 0) +
+						(order.OrderDetail?.otherFees?.packaging ?? 0) +
+						(order.OrderDetail?.otherFees?.weight ?? 0);
+					const totalPrice = order.OrderDetail?.finalPrice ?? 0;
+					let totalProductPrice = 0;
+
+					if (order.OrderDetail) {
+						const totalHarga = order.OrderDetail.finalPrice || 0;
+
+						let diskonValue = 0;
+						if (order.OrderDetail.otherFees?.discount) {
+							if (order.OrderDetail.otherFees.discount.type === "percent") {
+								diskonValue = (totalHarga * order.OrderDetail.otherFees.discount.value) / 100;
+							} else {
+								diskonValue = order.OrderDetail.otherFees.discount.value || 0;
+							}
+						}
+
+						const totalBiayaLain = shippingCost + otherFees;
+
+						totalProductPrice = totalHarga - diskonValue - totalBiayaLain;
+
+						totalProductPrice = Math.max(0, totalProductPrice);
+					}
+					const diskon = order.OrderDetail?.otherFees?.discount
+						? order.OrderDetail.otherFees.discount.type === "percent"
+							? `${order.OrderDetail.otherFees.discount.value}%`
+							: order.OrderDetail.otherFees.discount.value
+						: 0;
+
+					// Mengembalikan satu baris data untuk satu order
+					return {
+						No: index + 1,
+						"Kode Order": order.OrderDetail?.code ?? "",
+						Pemesan: order.OrdererCustomer?.name ?? "",
+						"Pelanggan Tujuan": order.DeliveryTargetCustomer?.name ?? "",
+						"Lokasi Pengiriman": order.DeliveryPlace?.name ?? "",
+						"Channel Penjualan": order.SalesChannel?.name ?? "",
+						"Metode Pembayaran": order.OrderDetail?.PaymentMethod?.name ?? "",
+						"Status Pembayaran": order.OrderDetail?.paymentStatus ?? "",
+						"Tanggal Order": order.orderDate ? formatter.format(new Date(order.orderDate)) : "",
+						"Tanggal Pembayaran": order.OrderDetail?.paymentDate
+							? formatter.format(new Date(order.OrderDetail.paymentDate))
+							: "",
+						"Produk & Qty": productList,
+						"Total Item": totalItems,
+						"Total Harga Produk": totalProductPrice,
+						Ongkir: shippingCost,
+						"Biaya Lainnya": otherFees,
+						Discount: diskon,
+						"Total Keseluruhan": totalPrice,
+						"Nomor Resi": order.OrderDetail?.receiptNumber ?? "",
+						"Layanan Pengiriman": order.ShippingServices?.[0]?.serviceName ?? "",
+						"Tipe Pengiriman": order.OrderDetail?.otherFees?.shippingCost?.type ?? "",
+						Catatan: order.note ?? "",
+						"Tanggal Dibuat": order.createdAt ? formatter.format(new Date(order.createdAt)) : "",
+					};
+				},
+				"Orders",
+				"Tidak ada data pesanan untuk diekspor",
+			);
+		} catch (error) {
+			logger.error(error);
+			return ServiceResponse.failure("Gagal mengekspor data pesanan", null, StatusCodes.INTERNAL_SERVER_ERROR);
+		}
+	};
+
+	public importOrders = async (file: Buffer) => {
+		try {
+			const importResult = await importData<Prisma.OrderWhereInput>(
+				file,
+				<T>(row: Record<string, unknown>, index: number): T => {
+					const orderCode = row["Kode Order"] as string;
+
+					const orderDate = row["Tanggal Order"] || null;
+					const note = row.Catatan as string;
+
+					// Data pelanggan dan pengiriman
+					const ordererCustomer = row.Pemesan;
+					const deliveryTargetCustomer = row["Pelanggan Tujuan"];
+					const deliveryPlace = row["Lokasi Pengiriman"];
+					const salesChannel = row["Channel Penjualan"];
+
+					// Data Product
+					const productList = row["Produk & Qty"] as string;
+					const products = productList
+						.split("\n")
+						.map((item) => {
+							const match = item.match(/(.*?)\s*\(SKU:\s*([^)]+)\)\s*x(\d+)/);
+							if (!match) return null;
+
+							const [_, productName, skuList, quantity] = match;
+							const skus = skuList.split(",").map((sku) => sku.trim());
+
+							return {
+								productName,
+								skus,
+								quantity: Number.parseInt(quantity),
+							};
+						})
+						.filter(Boolean);
+
+					// Data pembayaran
+					const paymentStatus = row["Status Pembayaran"] as PaymentStatus;
+					const paymentDate = row["Tanggal Pembayaran"] || null;
+					const paymentMethod = row["Metode Pembayaran"];
+
+					// Data biaya dan diskon
+					const finalPrice = Number(row["Total Keseluruhan"]);
+					const otherFeesTotal = Number(row["Biaya Lainnya"]);
+					const shippingCost = Number(row.Ongkir);
+					const shippingType = row["Tipe Pengiriman"] as string;
+					const shippingService = row["Layanan Pengiriman"] as string;
+
+					// Menentukan tipe dan nilai diskon
+					const discountType = row.Discount?.toString().includes("%") ? "percent" : "fixed";
+					const discountValue = Number(row.Discount?.toString().replace("%", ""));
+
+					// Membuat objek otherFees sebagai JSON
+					const otherFees = {
+						total: otherFeesTotal || 0,
+						discount: {
+							type: discountType || 0,
+							value: discountValue || 0,
+						},
+						shippingCost: {
+							cost: shippingCost || 0,
+							type: shippingType || "reguler",
+							shippingService: shippingService || "",
+						},
+					};
+
+					// Mengembalikan objek order yang sesuai dengan Prisma OrderWhereInput
+					const data = {
+						orderDate: orderDate,
+						note: note,
+						OrdererCustomer: ordererCustomer as string,
+						DeliveryTargetCustomer: deliveryTargetCustomer as string,
+						DeliveryPlace: deliveryPlace as string,
+						SalesChannel: salesChannel as string,
+						OrderDetail: {
+							code: orderCode,
+							paymentStatus: paymentStatus,
+							paymentDate: paymentDate,
+							PaymentMethod: paymentMethod as string,
+							finalPrice: finalPrice,
+							receiptNumber: row["Nomor Resi"] as string,
+							OrderProducts: products,
+							otherFees: otherFees,
+						},
+						ShippingServices: {
+							serviceName: shippingService,
+							type: shippingType,
+							shippingCost: shippingCost,
+						},
+					};
+
+					return data as T;
+				},
+				async (data) => {
+					const { v4: uuidv4 } = require("uuid");
+
+					for (const item of data) {
+						const existingOrder = await this.orderRepo.client.orderDetail.findFirst({
+							where: {
+								code: item.OrderDetail?.code,
+							},
+						});
+						if (existingOrder) {
+							return null;
+						}
+
+						// TODO: orderer customer
+						await this.orderRepo.client.$transaction(async (tx) => {
+							const ordererCustomer = await tx.customer.findFirst({
+								where: {
+									name: {
+										equals: item.OrdererCustomer as string,
+										mode: "insensitive",
+									},
+								},
+							});
+
+							let newOrdererCustomer = null;
+							if (!ordererCustomer) {
+								newOrdererCustomer = await tx.customer.create({
+									data: {
+										id: uuidv4(),
+										name: item.OrdererCustomer as string,
+										category: "CUSTOMER" as CustomerCategories,
+										status: "ACTIVE",
+										address: "",
+										subdistrict: "",
+										postalCode: "",
+										phoneNumber: "",
+										email: "",
+									},
+								});
+							}
+
+							const deliveryOrdererCustomer = await tx.customer.findFirst({
+								where: {
+									name: {
+										equals: item.DeliveryTargetCustomer as string,
+										mode: "insensitive",
+									},
+								},
+							});
+
+							let newDeliveryOrdererCustomer = null;
+							if (!deliveryOrdererCustomer) {
+								newDeliveryOrdererCustomer = await tx.customer.create({
+									data: {
+										id: uuidv4(),
+										name: item.DeliveryTargetCustomer as string,
+										category: "CUSTOMER" as CustomerCategories,
+										status: "ACTIVE",
+										address: "",
+										subdistrict: "",
+										postalCode: "",
+										phoneNumber: "",
+										email: "",
+									},
+								});
+							}
+
+							const deliveryPlace = await tx.deliveryPlace.findFirst({
+								where: {
+									name: {
+										equals: item.DeliveryPlace as string,
+										mode: "insensitive",
+									},
+								},
+							});
+
+							let newDeliveryPlace = null;
+							if (!deliveryPlace) {
+								newDeliveryPlace = await tx.deliveryPlace.create({
+									data: {
+										id: uuidv4(),
+										name: item.OrdererCustomer as string,
+										address: "",
+										subdistrict: "",
+										phoneNumber: "",
+										email: "",
+									},
+								});
+							}
+
+							const salesChannel = await tx.salesChannel.findFirst({
+								where: {
+									name: {
+										equals: item.SalesChannel as string,
+										mode: "insensitive",
+									},
+								},
+							});
+
+							let newSalesChannel = null;
+							if (!salesChannel) {
+								newSalesChannel = await tx.salesChannel.create({
+									data: {
+										id: uuidv4(),
+										name: item.SalesChannel as string,
+										isActive: true,
+									},
+								});
+							}
+
+							const paymentMethod = await tx.paymentMethod.findFirst({
+								where: {
+									name: {
+										equals: item.OrderDetail?.PaymentMethod as string,
+										mode: "insensitive",
+									},
+								},
+							});
+
+							let newPaymentMethod = null;
+							if (!paymentMethod) {
+								newPaymentMethod = await tx.paymentMethod.create({
+									data: {
+										id: uuidv4(),
+										name: null,
+										bankName: item.OrderDetail?.PaymentMethod as string,
+										bankBranch: null,
+										accountNumber: null,
+									},
+								});
+							}
+
+							let newProduct = null;
+							const products = await Promise.all(
+								(item.OrderDetail?.OrderProducts as { productName: string; skus: string[]; quantity: number }[])?.map(
+									async (product: { productName: string; skus: string[]; quantity: number }) => {
+										const foundProduct = await tx.product.findFirst({
+											where: {
+												AND: [
+													{
+														name: {
+															equals: product.productName,
+															mode: "insensitive",
+														},
+													},
+													{
+														productVariants: {
+															some: {
+																sku: {
+																	in: product.skus,
+																},
+															},
+														},
+													},
+												],
+											},
+											include: {
+												productVariants: {
+													where: {
+														sku: {
+															in: product.skus,
+														},
+													},
+												},
+											},
+										});
+
+										if (!foundProduct) {
+											newProduct = await tx.product.create({
+												data: {
+													id: uuidv4(),
+													name: product.productName,
+													type: "BARANG_STOK_SENDIRI",
+													productVariants: {
+														create: product.skus.map((sku: string) => ({
+															id: uuidv4(),
+															sku: sku,
+															stock: 0,
+														})),
+													},
+												},
+											});
+										}
+
+										return {
+											productId: foundProduct?.id,
+											productQty: product.quantity,
+										};
+									},
+								),
+							);
+
+							const orderProducts = products.map((product: { productId: string | undefined; productQty: number }) => ({
+								id: uuidv4(),
+								productId: product.productId as string,
+								productQty: product.productQty,
+							}));
+
+							await tx.order.create({
+								data: {
+									id: uuidv4(),
+									ordererCustomerId: ordererCustomer?.id || newOrdererCustomer?.id,
+									deliveryTargetCustomerId: deliveryOrdererCustomer?.id || newDeliveryOrdererCustomer?.id,
+									deliveryPlaceId: deliveryPlace?.id || newDeliveryPlace?.id,
+									salesChannelId: salesChannel?.id || newSalesChannel?.id,
+									orderDate: item.orderDate instanceof Date ? item.orderDate : new Date(item.orderDate as string),
+									note: (item.note as string) || "",
+									OrderDetail: {
+										create: {
+											id: uuidv4(),
+											code: item.OrderDetail?.code as string,
+											paymentStatus: (item.OrderDetail?.paymentStatus as PaymentStatus) || "PENDING",
+											paymentDate:
+												item.OrderDetail?.paymentDate instanceof Date
+													? item.OrderDetail?.paymentDate
+													: new Date(item.OrderDetail?.paymentDate as string),
+											paymentMethodId: paymentMethod?.id || newPaymentMethod?.id,
+											finalPrice: (item.OrderDetail?.finalPrice as number) || 0,
+											receiptNumber: (item.OrderDetail?.receiptNumber as string) || null,
+											otherFees: item.OrderDetail?.otherFees as Prisma.InputJsonValue | undefined,
+											OrderProducts: {
+												create: orderProducts.map((product) => ({
+													orderId: uuidv4(),
+													Product: {
+														connect: {
+															id: product.productId,
+														},
+													},
+													productQty: product.productQty,
+												})),
+											},
+										},
+									},
+								},
+							});
+						});
+					}
+				},
+			);
+
+			return ServiceResponse.success("Berhasil mengimpor data order", importResult.responseObject, StatusCodes.OK);
+		} catch (error) {
+			logger.error(error);
+			return ServiceResponse.failure("Gagal mengimpor data order", null, StatusCodes.INTERNAL_SERVER_ERROR);
 		}
 	};
 }

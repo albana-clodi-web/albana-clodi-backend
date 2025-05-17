@@ -16,10 +16,10 @@ enum Roles {
 }
 
 enum PaymentStatus {
-  settlement
-  pending
-  cancel
-  installments
+  SETTLEMENT
+  PENDING
+  CANCEL
+  INSTALLMENTS
 }
 
 enum ProductTypes {
@@ -77,7 +77,7 @@ model Product {
 
   category        Category?        @relation(fields: [categoryId], references: [id])
   productVariants ProductVariant[]
-  orderDetails    OrderDetail[]
+  OrderProduct    OrderProduct[]
 
   @@index([categoryId])
   @@index([name])
@@ -163,20 +163,21 @@ model Customer {
 }
 
 model Order {
-  id                       String         @id @default(uuid()) @db.Uuid
-  ordererCustomerId        String?        @map("orderer_customer_id") @db.Uuid
-  deliveryTargetCustomerId String?        @map("delivery_target_customer_id") @db.Uuid
-  deliveryPlaceId          String?        @map("delivery_place_id") @db.Uuid
-  salesChannelId           String?        @map("sales_channel_id") @db.Uuid
-  orderDate                DateTime?      @map("order_date") @db.Date
-  note                     String?        @db.Text
-  createdAt                DateTime       @default(now()) @map("created_at")
-  updatedAt                DateTime       @updatedAt @map("updated_at")
-  salesChannel             SalesChannel?  @relation(fields: [salesChannelId], references: [id])
-  deliveryPlace            DeliveryPlace? @relation(fields: [deliveryPlaceId], references: [id])
-  ordererCustomer          Customer?      @relation("OrdererCustomer", fields: [ordererCustomerId], references: [id])
-  deliveryTargetCustomer   Customer?      @relation("DeliveryTargetCustomer", fields: [deliveryTargetCustomerId], references: [id])
-  OrderDetail              OrderDetail[]
+  id                       String            @id @default(uuid()) @db.Uuid
+  ordererCustomerId        String?           @map("orderer_customer_id") @db.Uuid
+  deliveryTargetCustomerId String?           @map("delivery_target_customer_id") @db.Uuid
+  deliveryPlaceId          String?           @map("delivery_place_id") @db.Uuid
+  salesChannelId           String?           @map("sales_channel_id") @db.Uuid
+  orderDate                DateTime?         @map("order_date") @db.Date
+  note                     String?           @db.Text
+  createdAt                DateTime          @default(now()) @map("created_at")
+  updatedAt                DateTime          @updatedAt @map("updated_at")
+  SalesChannel             SalesChannel?     @relation(fields: [salesChannelId], references: [id])
+  DeliveryPlace            DeliveryPlace?    @relation(fields: [deliveryPlaceId], references: [id])
+  OrdererCustomer          Customer?         @relation("OrdererCustomer", fields: [ordererCustomerId], references: [id])
+  DeliveryTargetCustomer   Customer?         @relation("DeliveryTargetCustomer", fields: [deliveryTargetCustomerId], references: [id])
+  OrderDetail              OrderDetail?
+  ShippingServices         ShippingService[]
 
   @@index([ordererCustomerId])
   @@index([deliveryTargetCustomerId])
@@ -188,52 +189,67 @@ model Order {
 }
 
 model OrderDetail {
-  id                String         @id @default(uuid()) @db.Uuid
-  orderId           String?        @map("order_id") @db.Uuid
-  productId         String?        @map("product_id") @db.Uuid
-  paymentMethodId   String?        @map("payment_method_id") @db.Uuid
-  code              String?
-  productQty        Int?           @map("product_qty")
-  shippingServiceId String?        @map("shipping_service_id") @db.Uuid
-  otherFees         Json?          @map("other_fees")
-  finalPrice        Float?         @map("final_price")
-  paymentStatus     PaymentStatus?
-  paymentDate       DateTime?      @map("payment_date")
-  receiptNumber     String?        @map("receipt_number")
-  createdAt         DateTime       @default(now()) @map("created_at")
-  updatedAt         DateTime       @updatedAt @map("updated_at")
+  id              String         @id @default(uuid()) @db.Uuid
+  orderId         String         @unique @map("order_id") @db.Uuid
+  paymentMethodId String?        @map("payment_method_id") @db.Uuid
+  code            String?
+  otherFees       Json?          @map("other_fees")
+  finalPrice      Float?         @map("final_price")
+  paymentStatus   PaymentStatus?
+  paymentDate     DateTime?      @map("payment_date")
+  receiptNumber   String?        @map("receipt_number")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
 
-  order           Order?           @relation(fields: [orderId], references: [id])
-  shippingService ShippingService? @relation(fields: [shippingServiceId], references: [id])
-  product         Product?         @relation(fields: [productId], references: [id])
-  paymentMethod   PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
+  Order         Order          @relation(fields: [orderId], references: [id])
+  PaymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  OrderProducts OrderProduct[]
 
-  @@index([productId])
   @@index([paymentMethodId])
   @@index([paymentStatus])
   @@index([code])
   @@map("order_details")
 }
 
+model OrderProduct {
+  id            String   @id @default(uuid()) @db.Uuid
+  orderId       String   @map("order_id") @db.Uuid
+  orderDetailId String?  @map("order_detail_id") @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  productQty    Int      @map("product_qty")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  Product     Product      @relation(fields: [productId], references: [id])
+  OrderDetail OrderDetail? @relation(fields: [orderDetailId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([orderDetailId])
+  @@map("order_products")
+}
+
 model ShippingService {
-  id               String        @id @default(uuid()) @db.Uuid
-  orderDetailId    String?       @map("order_detail_id") @db.Uuid
-  shippingName     String?       @map("shipping_name")
-  serviceName      String?       @map("service_name")
+  id               String   @id @default(uuid()) @db.Uuid
+  orderId          String   @map("order_id") @db.Uuid
+  shippingName     String?  @map("shipping_name")
+  serviceName      String?  @map("service_name")
   weight           Int?
-  isCod            Boolean?      @default(false) @map("is_cod")
-  shippingCost     Float?        @map("shipping_cost")
-  shippingCashback Float?        @map("shipping_cashback")
-  shippingCostNet  Float?        @map("shipping_cost_net")
+  isCod            Boolean? @default(false) @map("is_cod")
+  shippingCost     Float?   @map("shipping_cost")
+  shippingCashback Float?   @map("shipping_cashback")
+  shippingCostNet  Float?   @map("shipping_cost_net")
   grandtotal       Float?
-  serviceFee       Float?        @map("service_fee")
-  netIncome        Float?        @map("net_income")
+  serviceFee       Float?   @map("service_fee")
+  netIncome        Float?   @map("net_income")
   etd              String?
   type             String? // reguler, cargo, instant
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
-  OrderDetail      OrderDetail[]
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
+  Order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
   @@index([shippingName])
   @@index([serviceName])
   @@index([type])

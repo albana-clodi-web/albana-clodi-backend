@@ -3,45 +3,94 @@ import { z } from "zod";
 
 extendZodWithOpenApi(z);
 
+// =============================================
+// TODO: ORDER SCHEMA
+// =============================================
 export const OrderSchema = z.object({
 	id: z.string().uuid().optional(),
 	ordererCustomerId: z.string().uuid().optional().describe("ID pelanggan pemesan"),
 	deliveryTargetCustomerId: z.string().uuid().optional().describe("ID pelanggan tujuan pengiriman"),
 	deliveryPlaceId: z.string().uuid().optional().describe("ID tempat pengiriman"),
-	orderDate: z.string().or(z.date()).optional().describe("Tanggal pemesanan"),
-	salesChannelId: z.string().optional().describe("ID saluran penjualan"),
+	salesChannelId: z.string().uuid().optional().describe("ID saluran penjualan"),
+	orderDate: z.string().datetime().optional().describe("Tanggal pemesanan"),
 	note: z.string().optional().describe("Catatan pesanan"),
 	createdAt: z.date().optional(),
 	updatedAt: z.date().optional(),
 });
+export type OrderType = z.infer<typeof OrderSchema>;
 
-// Schema untuk metode pembayaran
-export const PaymentMethodSchema = z.object({
-	id: z.string().uuid().optional().describe("ID metode pembayaran"),
-	status: z.string().optional().describe("Status pembayaran"),
-	date: z.string().or(z.date()).optional().describe("Tanggal pembayaran"),
-	nominal: z.number().optional().describe("Nominal pembayaran"),
-});
-
-// Schema untuk detail pesanan
+// =============================================
+// TODO: ORDER DETAIL SCHEMA
+// =============================================
 export const OrderDetailSchema = z.object({
 	id: z.string().uuid().optional(),
 	orderId: z.string().uuid().optional().describe("ID order"),
+	paymentMethodId: z.string().uuid().optional().describe("ID metode pembayaran"),
 	productId: z.string().uuid().optional().describe("ID produk"),
 	code: z.string().optional().describe("Kode pesanan"),
+	otherFees: z
+		.object({
+			packaging: z.number().optional().describe("Biaya packaging"),
+			insurance: z.number().optional().describe("Biaya asuransi"),
+			weight: z.number().optional().describe("Berat produk 1 kg"),
+			discount: z
+				.object({
+					value: z.number().describe("Nilai diskon"),
+					type: z.enum(["percent", "nominal"]).describe("Tipe diskon (persen atau nominal)"),
+				})
+				.optional()
+				.describe("Diskon (opsional)"),
+			shippingCost: z
+				.object({
+					shippingService: z.string(),
+					type: z.string(),
+					cost: z.number(),
+				})
+				.optional()
+				.describe("Biaya pengiriman"),
+		})
+		.optional()
+		.describe("Biaya tambahan lainnya"),
+	paymentStatus: z.enum(["settlement", "pending", "cancel", "installments"]).optional().describe("Status pembayaran"),
+	paymentDate: z.date().optional().describe("Tanggal pembayaran"),
+	receiptNumber: z.string().optional().describe("Nomor resi"),
 	productQty: z.number().int().optional().describe("Jumlah produk"),
 	shippingServiceId: z.string().uuid().optional().describe("ID layanan pengiriman"),
-	otherFees: z.any().optional().describe("Biaya tambahan lainnya"),
-	finalPrice: z.number().optional().describe("Harga akhir"),
-	receiptNumber: z.string().optional().describe("Nomor resi"),
 	createdAt: z.date().optional(),
 	updatedAt: z.date().optional(),
 });
+export type OrderDetailType = z.infer<typeof OrderDetailSchema>;
 
-// Schema untuk layanan pengiriman
+// =============================================
+// TODO: ORDER PRODUCT SCHEMA
+// =============================================
+export const OrderProductSchema = z.object({
+	id: z.string().uuid().optional(),
+	orderId: z.string().uuid().optional().describe("ID order"),
+	productId: z.string().uuid().optional().describe("ID produk"),
+	productVariantId: z.string().uuid().optional().describe("ID varian produk"),
+	productQty: z.number().int().describe("Jumlah produk"),
+	createdAt: z.date().optional(),
+	updatedAt: z.date().optional(),
+});
+export type OrderProductType = z.infer<typeof OrderProductSchema>;
+
+// =============================================
+// TODO: ORDER PAYMENT SCHEMA
+// =============================================
+export const PaymentMethodSchema = z.object({
+	id: z.string().uuid().optional().describe("ID metode pembayaran"),
+	status: z.enum(["SETTLEMENT", "PENDING", "CANCEL", "INSTALLMENTS"]).optional().describe("Status pembayaran"),
+	date: z.string().datetime().optional().describe("Tanggal pembayaran"),
+	nominal: z.number().optional().describe("Nominal pembayaran"),
+});
+
+// =============================================
+// TODO: ORDER SHIPPING SERVICE SCHEMA
+// =============================================
 export const ShippingServiceSchema = z.object({
 	id: z.string().uuid().optional(),
-	orderDetailId: z.string().uuid().optional(),
+	orderId: z.string().uuid().optional().describe("ID order"),
 	shippingName: z.string().optional().describe("Nama pengiriman"),
 	serviceName: z.string().optional().describe("Nama layanan"),
 	weight: z.number().int().optional().describe("Berat"),
@@ -58,65 +107,79 @@ export const ShippingServiceSchema = z.object({
 	updatedAt: z.date().optional(),
 });
 
-// Schema untuk order dengan detail
-export const OrderWithDetailsSchema = OrderSchema.extend({
-	orderDetails: z
-		.array(
-			OrderDetailSchema.extend({
-				shippingServices: z.array(ShippingServiceSchema).optional().describe("Layanan pengiriman"),
-				paymentMethod: PaymentMethodSchema.optional().describe("Metode pembayaran"),
-			}),
-		)
-		.optional()
-		.describe("Detail pesanan"),
-});
-
-// Schema untuk create order dengan detail dan shipping service
+// =============================================
+// TODO: CREATE ORDER SCHEMA
+// =============================================
 export const CreateOrderSchema = z.object({
 	body: z.object({
 		order: OrderSchema.omit({ id: true }),
-		orderDetails: z.array(
-			z.object({
-				detail: OrderDetailSchema.omit({ id: true, orderId: true }),
-				shippingServices: z
-					.array(ShippingServiceSchema.omit({ id: true, orderDetailId: true }))
-					.optional()
-					.describe("Shipping Service Detail"),
-				paymentMethod: PaymentMethodSchema.optional().describe("Metode pembayaran"),
-			}),
-		),
+		orderDetail: z.object({
+			detail: OrderDetailSchema.omit({ id: true, orderId: true }),
+			paymentMethod: PaymentMethodSchema.describe("Metode pembayaran"),
+			orderProducts: z.array(OrderProductSchema.omit({ id: true, orderId: true })),
+			shippingServices: z
+				.array(ShippingServiceSchema.omit({ id: true, orderId: true }))
+				.optional()
+				.describe("Shipping Service Detail"),
+		}),
 	}),
 });
-
 export type CreateOrderType = z.infer<typeof CreateOrderSchema>;
 
-// Schema untuk update order dengan detail dan shipping service
+// =============================================
+// TODO: UPDATE ORDER SCHEMA
+// =============================================
 export const UpdateOrderSchema = z.object({
 	body: z.object({
-		order: OrderSchema.partial().optional(),
-		orderDetails: z
-			.array(
-				z.object({
-					id: z.string().uuid().optional(),
-					detail: OrderDetailSchema.partial().omit({ id: true, orderId: true }).optional(),
-					shippingServices: z.array(ShippingServiceSchema.partial().omit({ id: true, orderDetailId: true })).optional(),
-				}),
-			)
-			.optional(),
+		order: OrderSchema.partial().omit({ id: true }),
+		orderDetail: z.object({
+			detail: OrderDetailSchema.partial().omit({ id: true, orderId: true }),
+			paymentMethod: PaymentMethodSchema.partial().describe("Metode pembayaran"),
+			orderProducts: z.array(OrderProductSchema.partial().omit({ id: true, orderId: true })).optional(),
+			shippingServices: z
+				.array(ShippingServiceSchema.partial().omit({ id: true, orderId: true }))
+				.optional()
+				.describe("Shipping Service Detail"),
+		}),
 	}),
 	params: z.object({
 		id: z.string().uuid(),
 	}),
 });
-
 export type UpdateOrderType = z.infer<typeof UpdateOrderSchema>;
 
-export type OrderType = z.infer<typeof OrderSchema>;
-
-// Schema untuk params id
+// =============================================
+// TODO: PARAMS SCHEMA
+// =============================================
 export const OrderParamsSchema = z.object({
 	params: z.object({
 		id: z.string().uuid(),
 	}),
 });
 export type OrderParamsType = z.infer<typeof OrderParamsSchema>;
+
+// =============================================
+// TODO: QUERY SCHEMA
+// =============================================
+export const OrderQuerySchema = z.object({
+	query: z.object({
+		ordererCustomerId: z.string().uuid().optional(),
+		deliveryTargetCustomerId: z.string().uuid().optional(),
+		salesChannelId: z.string().uuid().optional(),
+		deliveryPlaceId: z.string().uuid().optional(),
+		orderDate: z.string().optional(),
+		orderStatus: z.string().optional(),
+		orderMonth: z.string().optional(),
+		orderYear: z.string().optional(),
+		startDate: z.string().optional(),
+		endDate: z.string().optional(),
+		customerCategory: z.string().optional(),
+		paymentStatus: z.string().optional(),
+		productId: z.string().uuid().optional(),
+		paymentMethodId: z.string().uuid().optional(),
+		search: z.string().optional(),
+		sort: z.string().optional(),
+		order: z.enum(["asc", "desc"]).optional(),
+	}),
+});
+export type OrderQueryType = z.infer<typeof OrderQuerySchema>;

@@ -88,7 +88,7 @@ expensesRegistry.registerPath({
 });
 
 expensesRegistry.registerPath({
-	method: "post",
+	method: "get",
 	path: "/expenses/export/excel",
 	tags: ["Expenses"],
 	request: {
@@ -159,5 +159,5 @@ expensesRouter
 	.get(validateRequest(ExpenseParamsSchema), expenseController.getExpenseDetail)
 	.put(validateRequest(UpdateExpensesSchema), expenseController.updateExpense)
 	.delete(validateRequest(ExpenseParamsSchema), expenseController.deleteExpense);
-expensesRouter.route("/export/excel").post(expenseController.exportExpenses);
+expensesRouter.route("/export/excel").get(expenseController.exportExpenses);
 expensesRouter.route("/import/excel").post(upload.single("expenses_data"), expenseController.importExpenses);

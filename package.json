@@ -16,7 +16,7 @@
 		"test": "prisma generate && vitest run",
 		"test:cov": "vitest run --coverage",
 		"check": "pnpm lint && pnpm format && pnpm build && pnpm test",
-		"seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seeders/main.ts"
+		"seed": "tsx prisma/seeders/main.ts"
 	},
 	"dependencies": {
 		"@asteasolutions/zod-to-openapi": "7.3.0",
