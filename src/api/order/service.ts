@@ -720,7 +720,10 @@ class OrderService {
 							data.orderDetail.detail.code ||
 							`OID-${Date.now().toString().slice(-4)}-${Math.floor(1000 + Math.random() * 9000)}`,
 						otherFees: data.orderDetail.detail.otherFees,
-						finalPrice: Number(totalPrice),
+						originalFinalPrice: Number(totalPrice),
+						finalPrice: data.orderDetail.detail.originalFinalPrice
+							? Number(data.orderDetail.detail.originalFinalPrice)
+							: Number(totalPrice),
 						paymentStatus: data.orderDetail.paymentMethod?.status
 							? (data.orderDetail.paymentMethod?.status.toUpperCase() as PaymentStatus)
 							: undefined,
@@ -1190,7 +1193,10 @@ class OrderService {
 								paymentMethodId: data.orderDetail.paymentMethod?.id,
 								code: data.orderDetail.detail?.code,
 								otherFees: data.orderDetail.detail?.otherFees ? Number(data.orderDetail.detail.otherFees) : undefined,
-								finalPrice: Number(totalPrice),
+								originalFinalPrice: Number(totalPrice),
+								finalPrice: data.orderDetail.detail.originalFinalPrice
+									? Number(data.orderDetail.detail.originalFinalPrice)
+									: Number(totalPrice),
 								paymentStatus: data.orderDetail.paymentMethod?.status
 									? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
 									: undefined,
@@ -1208,7 +1214,10 @@ class OrderService {
 								paymentMethodId: data.orderDetail.paymentMethod?.id,
 								code: data.orderDetail.detail?.code,
 								otherFees: data.orderDetail.detail?.otherFees ? Number(data.orderDetail.detail.otherFees) : undefined,
-								finalPrice: Number(totalPrice),
+								originalFinalPrice: Number(totalPrice),
+								finalPrice: data.orderDetail.detail.originalFinalPrice
+									? Number(data.orderDetail.detail.originalFinalPrice)
+									: Number(totalPrice),
 								paymentStatus: data.orderDetail.paymentMethod?.status
 									? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
 									: undefined,

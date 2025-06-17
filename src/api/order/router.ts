@@ -103,6 +103,7 @@ orderRegistry.registerPath({
 						},
 						orderDetail: {
 							detail: {
+								originalFinalPrice: 1000,
 								otherFees: {
 									packaging: 5000,
 									insurance: 10000,
@@ -193,6 +194,7 @@ orderRegistry.registerPath({
 						orderDetail: {
 							detail: {
 								code: "ORD-004",
+								originalFinalPrice: 1000,
 								otherFees: {
 									packaging: 5000,
 									insurance: 10000,

@@ -74,14 +74,9 @@
 		"vite-tsconfig-paths": "5.1.4"
 	},
 	"tsup": {
-		"entry": [
-			"src/index.ts"
-		],
+		"entry": ["src/index.ts"],
 		"outDir": "dist",
-		"format": [
-			"esm",
-			"cjs"
-		],
+		"format": ["esm", "cjs"],
 		"target": "es2020",
 		"sourcemap": true,
 		"clean": true,

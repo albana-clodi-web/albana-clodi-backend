@@ -202,17 +202,18 @@ model Order {
 }
 
 model OrderDetail {
-  id              String         @id @default(uuid()) @db.Uuid
-  orderId         String         @unique @map("order_id") @db.Uuid
-  paymentMethodId String?        @map("payment_method_id") @db.Uuid
-  code            String?
-  otherFees       Json?          @map("other_fees")
-  finalPrice      Float?         @map("final_price")
-  paymentStatus   PaymentStatus?
-  paymentDate     DateTime?      @map("payment_date")
-  receiptNumber   String?        @map("receipt_number")
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
+  id                 String         @id @default(uuid()) @db.Uuid
+  orderId            String         @unique @map("order_id") @db.Uuid
+  paymentMethodId    String?        @map("payment_method_id") @db.Uuid
+  code               String?
+  otherFees          Json?          @map("other_fees")
+  originalFinalPrice Float?         @map("original_price")
+  finalPrice         Float?         @map("final_price")
+  paymentStatus      PaymentStatus?
+  paymentDate        DateTime?      @map("payment_date")
+  receiptNumber      String?        @map("receipt_number")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
 
   Order         Order          @relation(fields: [orderId], references: [id])
   PaymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
