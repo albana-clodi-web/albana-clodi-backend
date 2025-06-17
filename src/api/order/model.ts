@@ -28,6 +28,7 @@ export const OrderDetailSchema = z.object({
 	paymentMethodId: z.string().uuid().optional().describe("ID metode pembayaran"),
 	productId: z.string().uuid().optional().describe("ID produk"),
 	code: z.string().optional().describe("Kode pesanan"),
+	originalFinalPrice: z.number().optional().describe("Harga final setelah diskon"),
 	otherFees: z
 		.object({
 			packaging: z.number().optional().describe("Biaya packaging"),
