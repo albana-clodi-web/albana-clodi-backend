@@ -6,24 +6,27 @@ declare global {
 	var prisma: PrismaClient | undefined;
 }
 
-// Konfigurasi timezone untuk Prisma
+// Konfigurasi timezone
 process.env.TZ = "Asia/Jakarta";
 
-const prismaClient = new PrismaClient({
-	log: [
-		{ level: "query", emit: "event" },
-		{ level: "error", emit: "stdout" },
-		{ level: "info", emit: "stdout" },
-		{ level: "warn", emit: "stdout" },
-	],
-});
+// ✅ Gunakan instance yang sudah ada, jika tersedia (singleton)
+const prismaClient =
+	global.prisma ??
+	new PrismaClient({
+		log: [
+			{ level: "query", emit: "event" },
+			{ level: "error", emit: "stdout" },
+			{ level: "info", emit: "stdout" },
+			{ level: "warn", emit: "stdout" },
+		],
+	});
 
+// Logging query (opsional)
 prismaClient.$on("query", (e: Prisma.QueryEvent) => {
 	console.log(`Query: ${e.query}`);
 });
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment, @typescript-eslint/prefer-ts-expect-error
-// @ts-ignore
-if (env.NODE_ENV !== "production") globalThis.prisma = prismaClient;
+// ✅ Di development, simpan ke global untuk hindari koneksi ganda
+if (env.NODE_ENV !== "production") global.prisma = prismaClient;
 
 export default prismaClient;
