@@ -5,12 +5,12 @@ import { pino } from "pino";
 
 import { openAPIRouter } from "@/api-docs/openAPIRouter";
 import { healthCheckRouter } from "@/api/healthCheck/healthCheckRouter";
-import { userRouter } from "@/api/user/userRouter";
 import errorHandler from "@/common/middleware/errorHandler";
 import rateLimiter from "@/common/middleware/rateLimiter";
 import requestLogger from "@/common/middleware/requestLogger";
 import { env } from "@/common/utils/envConfig";
 import { Roles } from "@prisma/client";
+import compression from "compression";
 import { authRouter } from "./api/auth/route";
 import { categoryRouter } from "./api/category/categoryRouter";
 import { customerRouter } from "./api/customer/customerRouter";
@@ -43,7 +43,10 @@ app.use(
 		credentials: true,
 	}),
 );
-app.use(helmet());
+
+app.use(compression());
+
+// app.use(helmet());
 // app.use(rateLimiter);
 
 // Request logging
@@ -52,7 +55,6 @@ app.use(requestLogger);
 // Routes
 app.use("/health-check", healthCheckRouter);
 app.use("/auth", authRouter);
-app.use("/users", authenticate, authorizeRoles([Roles.ADMIN, Roles.SUPERADMIN]), userRouter);
 app.use("/expenses", authenticate, authorizeRoles([Roles.ADMIN, Roles.SUPERADMIN]), expensesRouter);
 app.use("/products", authenticate, authorizeRoles([Roles.ADMIN, Roles.SUPERADMIN]), productRouter);
 app.use("/delivery-places", authenticate, authorizeRoles([Roles.ADMIN, Roles.SUPERADMIN]), deliveryPlaceRouter);

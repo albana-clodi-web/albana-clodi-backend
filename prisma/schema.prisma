@@ -87,9 +87,9 @@ model Product {
   ProductDiscount ProductDiscount[]
   OrderProduct    OrderProduct[]
 
-  @@index([categoryId])
-  @@index([name])
-  @@index([isPublish])
+  @@index([categoryId, name, isPublish])
+  @@index([type, isPublish])
+  @@index([createdAt, updatedAt])
   @@map("products")
 }
 
@@ -105,6 +105,8 @@ model ProductDiscount {
 
   product Product? @relation(fields: [productId], references: [id])
 
+  @@index([productId, type])
+  @@index([startDate, endDate])
   @@map("product_discounts")
 }
 
@@ -122,6 +124,7 @@ model ProductPrice {
   productVariant ProductVariant? @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
 
   @@index([productVariantId])
+  @@index([normal, buy, reseller, agent, member])
   @@map("product_prices")
 }
 
@@ -141,8 +144,9 @@ model ProductVariant {
   productPrices ProductPrice[]
   OrderProduct  OrderProduct[]
 
-  @@index([productId])
-  @@index([sku])
+  @@index([productId, sku])
+  @@index([stock, size, color])
+  @@index([createdAt, updatedAt])
   @@map("product_variant")
 }
 
@@ -167,10 +171,11 @@ model Customer {
   ordersAsOrderer        Order[] @relation("OrdererCustomer")
   ordersAsDeliveryTarget Order[] @relation("DeliveryTargetCustomer")
 
-  @@index([email])
-  @@index([phoneNumber])
-  @@index([category])
-  @@index([status])
+  @@index([name, email, phoneNumber])
+  @@index([category, status])
+  @@index([province, city, district, village])
+  @@index([destinationId])
+  @@index([createdAt, updatedAt])
   @@map("customers")
 }
 
@@ -198,6 +203,10 @@ model Order {
   @@index([deliveryPlaceId])
   @@index([salesChannelId])
   @@index([createdAt])
+  @@index([updatedAt])
+  @@index([id, ordererCustomerId, deliveryTargetCustomerId, orderDate])
+  @@index([id, salesChannelId, orderDate])
+  @@index([id, createdAt, updatedAt])
   @@map("orders")
 }
 
@@ -221,9 +230,18 @@ model OrderDetail {
   Product       Product?       @relation(fields: [productId], references: [id])
   productId     String?        @db.Uuid
 
+  @@index([orderId])
   @@index([paymentMethodId])
   @@index([paymentStatus])
   @@index([code])
+  @@index([receiptNumber])
+  @@index([paymentDate])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([productId])
+  @@index([orderId, paymentStatus])
+  @@index([orderId, paymentMethodId])
+  @@index([orderId, createdAt])
   @@map("order_details")
 }
 
@@ -244,6 +262,11 @@ model OrderProduct {
   @@index([orderId])
   @@index([productId])
   @@index([orderDetailId])
+  @@index([productVariantId])
+  @@index([createdAt])
+  @@index([orderId, productId])
+  @@index([orderId, orderDetailId])
+  @@index([orderDetailId, productId])
   @@map("order_products")
 }
 
@@ -271,6 +294,10 @@ model ShippingService {
   @@index([shippingName])
   @@index([serviceName])
   @@index([type])
+  @@index([isCod])
+  @@index([createdAt])
+  @@index([orderId, shippingName])
+  @@index([orderId, type])
   @@map("shipping_services")
 }
 
@@ -287,6 +314,8 @@ model PaymentMethod {
   Installment  Installment[]
 
   @@index([name])
+  @@index([bankName])
+  @@index([accountNumber])
   @@map("payment_methods")
 }
 
@@ -305,6 +334,9 @@ model DeliveryPlace {
 
   @@index([name])
   @@index([email])
+  @@index([phoneNumber])
+  @@index([destinationId])
+  @@index([subdistrict])
   @@map("delivery_places")
 }
 
