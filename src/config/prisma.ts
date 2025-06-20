@@ -1,4 +1,4 @@
-import { type Prisma, PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { env } from "../common/utils/envConfig";
 
 declare global {
@@ -9,24 +9,31 @@ declare global {
 // Konfigurasi timezone
 process.env.TZ = "Asia/Jakarta";
 
-// ✅ Gunakan instance yang sudah ada, jika tersedia (singleton)
-const prismaClient =
-	global.prisma ??
-	new PrismaClient({
-		log: [
-			{ level: "query", emit: "event" },
-			{ level: "error", emit: "stdout" },
-			{ level: "info", emit: "stdout" },
-			{ level: "warn", emit: "stdout" },
-		],
-	});
+// Implementasi singleton pattern untuk PrismaClient
+let prismaInstance: PrismaClient | undefined;
 
-// Logging query (opsional)
-prismaClient.$on("query", (e: Prisma.QueryEvent) => {
-	console.log(`Query: ${e.query}`);
-});
+function getPrismaInstance(): PrismaClient {
+	if (!prismaInstance) {
+		prismaInstance =
+			global.prisma ||
+			new PrismaClient({
+				log: [
+					{ level: "error", emit: "stdout" },
+					{ level: "info", emit: "stdout" },
+					{ level: "warn", emit: "stdout" },
+				],
+			});
 
-// ✅ Di development, simpan ke global untuk hindari koneksi ganda
-if (env.NODE_ENV !== "production") global.prisma = prismaClient;
+		// Simpan ke global di development untuk hindari koneksi ganda
+		if (env.NODE_ENV !== "production") {
+			global.prisma = prismaInstance;
+		}
+	}
+
+	return prismaInstance;
+}
+
+// Dapatkan instance PrismaClient
+const prismaClient = getPrismaInstance();
 
 export default prismaClient;
