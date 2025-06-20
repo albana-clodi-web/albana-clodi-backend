@@ -11,6 +11,7 @@ import rateLimiter from "@/common/middleware/rateLimiter";
 import requestLogger from "@/common/middleware/requestLogger";
 import { env } from "@/common/utils/envConfig";
 import { Roles } from "@prisma/client";
+import compression from "compression";
 import { authRouter } from "./api/auth/route";
 import { categoryRouter } from "./api/category/categoryRouter";
 import { customerRouter } from "./api/customer/customerRouter";
@@ -43,7 +44,10 @@ app.use(
 		credentials: true,
 	}),
 );
-app.use(helmet());
+
+app.use(compression());
+
+// app.use(helmet());
 // app.use(rateLimiter);
 
 // Request logging
