@@ -1,11 +1,11 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
 import { exportData } from "@/common/utils/dataExporter";
 import { importData } from "@/common/utils/dataImporter";
+import prismaClient from "@/config/prisma";
 import { logger } from "@/server";
-import type { Expense, Prisma } from "@prisma/client";
 import { StatusCodes } from "http-status-codes";
+import type { Expense, Prisma } from "../../../generated/prisma";
 import type { CreateExpensesType, UpdateExpensesType } from "./model";
-import { type ExpenseRepository, expenseRepository } from "./repository";
 
 interface GetAllExpensesParams {
 	startDate?: string;
@@ -17,12 +17,6 @@ interface GetAllExpensesParams {
 }
 
 class ExpenseService {
-	private readonly expenseRepo: ExpenseRepository;
-
-	constructor() {
-		this.expenseRepo = expenseRepository;
-	}
-
 	public createExpense = async (data: CreateExpensesType["body"]) => {
 		try {
 			const itemPrice = data?.itemPrice || 0;
@@ -30,7 +24,7 @@ class ExpenseService {
 			const totalPrice = itemPrice * qty;
 			const expenseDate = data.expenseDate ? new Date(data.expenseDate) : undefined;
 
-			const result = await this.expenseRepo.client.expense.create({
+			const result = await prismaClient.expense.create({
 				data: {
 					...data,
 					expenseDate,
@@ -52,7 +46,7 @@ class ExpenseService {
 			const totalPrice = itemPrice * qty;
 			const expenseDate = data.expenseDate ? new Date(data.expenseDate) : undefined;
 
-			const updatedExpense = await this.expenseRepo.client.expense.update({
+			const updatedExpense = await prismaClient.expense.update({
 				where: { id },
 				data: {
 					...data,
@@ -71,7 +65,7 @@ class ExpenseService {
 
 	public deleteExpense = async (id: string) => {
 		try {
-			await this.expenseRepo.client.expense.delete({
+			await prismaClient.expense.delete({
 				where: { id },
 			});
 
@@ -84,7 +78,7 @@ class ExpenseService {
 
 	public getExpenseDetail = async (id: string) => {
 		try {
-			const expense = await this.expenseRepo.client.expense.findUnique({
+			const expense = await prismaClient.expense.findUnique({
 				where: { id },
 			});
 
@@ -199,19 +193,19 @@ class ExpenseService {
 
 			console.log(where);
 			const [expenses, totalExpenses, count] = await Promise.all([
-				this.expenseRepo.client.expense.findMany({
+				prismaClient.expense.findMany({
 					where: where as Prisma.ExpenseWhereInput,
 					orderBy: {
 						createdAt: "desc" as const,
 					},
 				}),
-				this.expenseRepo.client.expense.aggregate({
+				prismaClient.expense.aggregate({
 					where: where as Prisma.ExpenseWhereInput,
 					_sum: {
 						totalPrice: true,
 					},
 				}),
-				this.expenseRepo.client.expense.count({
+				prismaClient.expense.count({
 					where: where as Prisma.ExpenseWhereInput,
 				}),
 			]);
@@ -268,7 +262,7 @@ class ExpenseService {
 			return exportData<Expense>(
 				params,
 				async (where) => {
-					return this.expenseRepo.client.expense.findMany({
+					return prismaClient.expense.findMany({
 						where: where as Prisma.ExpenseWhereInput,
 						orderBy: { createdAt: "desc" },
 					});
@@ -337,7 +331,7 @@ class ExpenseService {
 						return true;
 					});
 
-					return this.expenseRepo.client.expense.createMany({
+					return prismaClient.expense.createMany({
 						data: validatedData,
 						skipDuplicates: true,
 					});

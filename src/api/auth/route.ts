@@ -3,9 +3,9 @@ import { authenticate } from "@/common/middleware/authenticate";
 import { authorizeRoles } from "@/common/middleware/authorizeRoles";
 import { validateRequest } from "@/common/utils/httpHandlers";
 import { OpenAPIRegistry } from "@asteasolutions/zod-to-openapi";
-import { Roles } from "@prisma/client";
 import express, { type Request, type Response, type Router } from "express";
 import { z } from "zod";
+import { Roles } from "../../../generated/prisma";
 import { AuthController } from "./controller";
 import { LoginSchema, RegisterSchema, UpdateProfileSchema } from "./model";
 

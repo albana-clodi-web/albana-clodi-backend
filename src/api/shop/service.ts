@@ -1,10 +1,9 @@
 import { AwsService } from "@/common/libs/awsService";
 import { ServiceResponse } from "@/common/models/serviceResponse";
 import { env } from "@/common/utils/envConfig";
-import type { Roles } from "@prisma/client";
+import prismaClient from "@/config/prisma";
 import { StatusCodes } from "http-status-codes";
 import type { CreateShopSettingType, UpdateShopSettingType } from "./model";
-import { shopRepository } from "./repository";
 
 class ShopService {
 	private readonly awsService;
@@ -23,7 +22,7 @@ class ShopService {
 
 	public async createShopSetting(data: CreateShopSettingType["body"]) {
 		try {
-			const existingSettings = await shopRepository.client.shopSetting.findFirst();
+			const existingSettings = await prismaClient.shopSetting.findFirst();
 
 			if (existingSettings) {
 				return ServiceResponse.failure("Pengaturan toko sudah ada", null, StatusCodes.BAD_REQUEST);
@@ -37,7 +36,7 @@ class ShopService {
 				? await this.awsService.uploadFile(data.banner as unknown as Express.Multer.File)
 				: null;
 
-			const shopSetting = await shopRepository.client.shopSetting.create({
+			const shopSetting = await prismaClient.shopSetting.create({
 				data: {
 					name: data.name,
 					description: data.description,
@@ -62,7 +61,7 @@ class ShopService {
 
 	public async getShopSetting() {
 		try {
-			const shopSetting = await shopRepository.client.shopSetting.findFirst();
+			const shopSetting = await prismaClient.shopSetting.findFirst();
 
 			if (!shopSetting) {
 				return ServiceResponse.failure("Pengaturan toko belum dibuat", null, StatusCodes.NOT_FOUND);
@@ -80,7 +79,7 @@ class ShopService {
 
 	public async updateShopSetting(updateData: UpdateShopSettingType["body"]) {
 		try {
-			const existingSettings = await shopRepository.client.shopSetting.findFirst();
+			const existingSettings = await prismaClient.shopSetting.findFirst();
 
 			if (!existingSettings) {
 				return ServiceResponse.failure("Pengaturan toko belum dibuat", null, StatusCodes.NOT_FOUND);
@@ -105,7 +104,7 @@ class ShopService {
 				await this.awsService.deleteFile(bannerKey);
 			}
 
-			const updatedShopSetting = await shopRepository.client.shopSetting.update({
+			const updatedShopSetting = await prismaClient.shopSetting.update({
 				where: { id: existingSettings.id },
 				data: {
 					...updateData,
