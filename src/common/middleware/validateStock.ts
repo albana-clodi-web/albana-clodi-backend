@@ -1,14 +1,12 @@
 import type { CreateProductType, UpdateProductType } from "@/api/product/productModel";
-import { Roles } from "@prisma/client";
-import { PrismaClient } from "@prisma/client";
+import prismaClient from "@/config/prisma";
 import type { NextFunction, Request, Response } from "express";
 import { StatusCodes } from "http-status-codes";
 import { NIL } from "uuid";
 import { ZodSchema } from "zod";
+import { Roles } from "../../../generated/prisma";
 import { ServiceResponse } from "../models/serviceResponse";
 import type { AuthRequest } from "../types/auth";
-
-const prisma = new PrismaClient();
 
 export const validateStock = async (req: AuthRequest, res: Response, next: NextFunction) => {
 	try {
@@ -17,7 +15,7 @@ export const validateStock = async (req: AuthRequest, res: Response, next: NextF
 
 		if (userRole === Roles.ADMIN) {
 			const ids = productVariants?.map((v) => v.id);
-			const foundVariants = await prisma.productVariant.findMany({
+			const foundVariants = await prismaClient.productVariant.findMany({
 				where: { id: { in: ids } },
 			});
 			const variantMap = new Map(foundVariants.map((v) => [v.id, v]));

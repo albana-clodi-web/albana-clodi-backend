@@ -1,18 +1,12 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
-import { PrismaClient } from "@prisma/client";
+import prismaClient from "@/config/prisma";
 import { StatusCodes } from "http-status-codes";
 import type { CreateCategoryType } from "./categoryModel";
-import { CategoryRepository } from "./categoryRepository";
 
 class CategoryService {
-	private readonly categoryRepo: CategoryRepository["category"];
-	constructor(categoryRepository = new CategoryRepository()) {
-		this.categoryRepo = categoryRepository.category;
-	}
-
 	public GetAll = async () => {
 		try {
-			const foundCategories = await this.categoryRepo.findMany();
+			const foundCategories = await prismaClient.category.findMany();
 
 			return ServiceResponse.success("Categories retrieved successfully", foundCategories, StatusCodes.OK);
 		} catch (ex) {
@@ -22,7 +16,7 @@ class CategoryService {
 
 	public Detail = async (id: string) => {
 		try {
-			const foundCategory = await this.categoryRepo.findFirst({ where: { id } });
+			const foundCategory = await prismaClient.category.findFirst({ where: { id } });
 			if (!foundCategory) {
 				return ServiceResponse.failure("Category not found", null, StatusCodes.NOT_FOUND);
 			}
@@ -35,12 +29,12 @@ class CategoryService {
 
 	public Create = async (req: CreateCategoryType) => {
 		try {
-			const existProduct = await this.categoryRepo.findFirst({ where: { name: req.name } });
+			const existProduct = await prismaClient.category.findFirst({ where: { name: req.name } });
 			if (existProduct) {
 				return ServiceResponse.failure("Category is exist", null, StatusCodes.BAD_REQUEST);
 			}
 
-			const newCategory = await this.categoryRepo.create({ data: { ...req } });
+			const newCategory = await prismaClient.category.create({ data: { ...req } });
 
 			return ServiceResponse.success("Category retrieved successfully", newCategory, StatusCodes.CREATED);
 		} catch (ex) {
@@ -50,12 +44,12 @@ class CategoryService {
 
 	public Update = async (req: CreateCategoryType, id: string) => {
 		try {
-			const existProduct = await this.categoryRepo.findFirst({ where: { name: req.name } });
+			const existProduct = await prismaClient.category.findFirst({ where: { name: req.name } });
 			if (existProduct) {
 				return ServiceResponse.failure("Category is exist", null, StatusCodes.BAD_REQUEST);
 			}
 
-			const newCategory = await this.categoryRepo.update({ data: { ...req }, where: { id } });
+			const newCategory = await prismaClient.category.update({ data: { ...req }, where: { id } });
 
 			return ServiceResponse.success("Category retrieved successfully", newCategory, StatusCodes.CREATED);
 		} catch (ex) {
@@ -65,12 +59,12 @@ class CategoryService {
 
 	public Delete = async (id: string) => {
 		try {
-			const foundProduct = await this.categoryRepo.findUnique({ where: { id } });
+			const foundProduct = await prismaClient.category.findUnique({ where: { id } });
 			if (!foundProduct) {
 				return ServiceResponse.failure("Category not found", null, StatusCodes.NOT_FOUND);
 			}
 
-			await this.categoryRepo.delete({ where: { id } });
+			await prismaClient.category.delete({ where: { id } });
 
 			return ServiceResponse.success("Category deleted successfully", foundProduct, StatusCodes.OK);
 		} catch (ex) {

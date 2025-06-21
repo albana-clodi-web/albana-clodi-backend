@@ -1,21 +1,14 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
-import { type Prisma, PrismaClient } from "@prisma/client";
+import prismaClient from "@/config/prisma";
 import { StatusCodes } from "http-status-codes";
+import type { Prisma } from "../../../generated/prisma";
 import type {
 	RequestQueryCityType,
 	RequestQueryDistrictType,
 	RequestQueryProvinceType,
 	RequestQueryVillageType,
 } from "./regionModel";
-import { RegionRepository } from "./regionRepository";
-
 class RegionService {
-	private readonly regionRepo: RegionRepository;
-
-	constructor(regionRepository = new RegionRepository()) {
-		this.regionRepo = regionRepository;
-	}
-
 	public getAllProvince = async (reqQuery: RequestQueryProvinceType) => {
 		try {
 			const query: Prisma.ProvinceFindManyArgs = {};
@@ -27,7 +20,7 @@ class RegionService {
 					},
 				};
 			}
-			const findAllProvinces = await this.regionRepo.province.findMany(query);
+			const findAllProvinces = await prismaClient.province.findMany(query);
 			const responseMap = findAllProvinces.map((data) => ({
 				...data,
 				id: data.id.toString(),
@@ -56,7 +49,7 @@ class RegionService {
 					},
 				};
 			}
-			const findAllCities = await this.regionRepo.city.findMany(query);
+			const findAllCities = await prismaClient.city.findMany(query);
 			const responseMap = findAllCities.map((data) => ({
 				...data,
 				id: data.id.toString(),
@@ -87,7 +80,7 @@ class RegionService {
 				};
 			}
 
-			const findAllDistricts = await this.regionRepo.district.findMany(query);
+			const findAllDistricts = await prismaClient.district.findMany(query);
 			const responseMap = findAllDistricts.map((data) => ({
 				...data,
 				id: data.id.toString(),
@@ -119,7 +112,7 @@ class RegionService {
 					},
 				};
 			}
-			const findAllDistricts = await this.regionRepo.village.findMany(query);
+			const findAllDistricts = await prismaClient.village.findMany(query);
 			const responseMap = findAllDistricts.map((data) => ({
 				...data,
 				id: data.id.toString(),

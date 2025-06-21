@@ -3,10 +3,10 @@ import { authenticate } from "@/common/middleware/authenticate";
 import { authorizeRoles } from "@/common/middleware/authorizeRoles";
 import { validateRequest } from "@/common/utils/httpHandlers";
 import { OpenAPIRegistry } from "@asteasolutions/zod-to-openapi";
-import { Roles } from "@prisma/client";
 import express, { type Request, type Response, type Router } from "express";
 import multer from "multer";
 import { z } from "zod";
+import { Roles } from "../../../generated/prisma";
 import { ShopController } from "./controller";
 import { CreateShopSettingSchema, UpdateShopSettingSchema } from "./model";
 

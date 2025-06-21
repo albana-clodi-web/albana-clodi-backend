@@ -4,12 +4,10 @@ import { exportData } from "@/common/utils/dataExporter";
 import { importData } from "@/common/utils/dataImporter";
 import prismaClient from "@/config/prisma";
 import { logger } from "@/server";
-import { type CustomerCategories, type Prisma, PrismaClient } from "@prisma/client";
-import { PaymentStatus } from "@prisma/client";
 import { StatusCodes } from "http-status-codes";
 import { v4 as uuidv4 } from "uuid";
+import { type CustomerCategories, PaymentStatus, type Prisma } from "../../../generated/prisma";
 import type { CreateOrderType, OrderQueryType, UpdateOrderType } from "./model";
-import { type OrderRepository, orderRepository } from "./repository";
 
 interface GetAllOrdersParams {
 	startDate?: string;
@@ -20,12 +18,6 @@ interface GetAllOrdersParams {
 }
 
 class OrderService {
-	private readonly orderRepo: OrderRepository;
-
-	constructor() {
-		this.orderRepo = orderRepository;
-	}
-
 	public getAll = async (query: OrderQueryType["query"]) => {
 		try {
 			type OrderFilter = Prisma.OrderWhereInput;
@@ -248,7 +240,7 @@ class OrderService {
 			console.log(filter);
 			console.log("=========================");
 
-			const result = await this.orderRepo.client.order.findMany({
+			const result = await prismaClient.order.findMany({
 				where: filter,
 				orderBy: {
 					createdAt: "desc", // Menampilkan waktu terbaru (descending)
@@ -308,7 +300,7 @@ class OrderService {
 
 	public getOne = async (id: string) => {
 		try {
-			const result = await this.orderRepo.client.order.findUnique({
+			const result = await prismaClient.order.findUnique({
 				where: { id },
 				include: {
 					Installment: true,
@@ -355,7 +347,7 @@ class OrderService {
 
 			// Cek customer pemesan
 			if (data.order.ordererCustomerId) {
-				const ordererCustomer = await this.orderRepo.client.customer.findUnique({
+				const ordererCustomer = await prismaClient.customer.findUnique({
 					where: { id: data.order.ordererCustomerId },
 				});
 				if (!ordererCustomer) {
@@ -365,7 +357,7 @@ class OrderService {
 
 			// Cek customer tujuan pengiriman
 			if (data.order.deliveryTargetCustomerId) {
-				const deliveryTargetCustomer = await this.orderRepo.client.customer.findUnique({
+				const deliveryTargetCustomer = await prismaClient.customer.findUnique({
 					where: { id: data.order.deliveryTargetCustomerId },
 				});
 				if (!deliveryTargetCustomer) {
@@ -379,7 +371,7 @@ class OrderService {
 
 			// Cek tempat pengiriman
 			if (data.order.deliveryPlaceId) {
-				const deliveryPlace = await this.orderRepo.client.deliveryPlace.findUnique({
+				const deliveryPlace = await prismaClient.deliveryPlace.findUnique({
 					where: { id: data.order.deliveryPlaceId },
 				});
 				if (!deliveryPlace) {
@@ -389,7 +381,7 @@ class OrderService {
 
 			// Cek saluran penjualan
 			if (data.order.salesChannelId) {
-				const salesChannel = await this.orderRepo.client.salesChannel.findUnique({
+				const salesChannel = await prismaClient.salesChannel.findUnique({
 					where: { id: data.order.salesChannelId },
 				});
 				if (!salesChannel) {
@@ -401,7 +393,7 @@ class OrderService {
 			if (data.orderDetail.detail) {
 				// Validasi kode order jika ada
 				if (data.orderDetail.detail.code) {
-					const existingOrder = await this.orderRepo.client.orderDetail.findFirst({
+					const existingOrder = await prismaClient.orderDetail.findFirst({
 						where: { code: data.orderDetail.detail.code },
 					});
 
@@ -491,7 +483,7 @@ class OrderService {
 			}
 
 			if (data.orderDetail.paymentMethod?.id) {
-				const paymentMethod = await this.orderRepo.client.paymentMethod.findUnique({
+				const paymentMethod = await prismaClient.paymentMethod.findUnique({
 					where: { id: data.orderDetail.paymentMethod.id },
 				});
 				if (!paymentMethod) {
@@ -502,7 +494,7 @@ class OrderService {
 			// Cek produk untuk order products
 			for (const orderProduct of data.orderDetail.orderProducts) {
 				if (orderProduct.productId) {
-					const product = await this.orderRepo.client.product.findUnique({
+					const product = await prismaClient.product.findUnique({
 						where: { id: orderProduct.productId },
 					});
 					if (!product) {
@@ -520,7 +512,7 @@ class OrderService {
 				}
 			}
 
-			const result = await this.orderRepo.client.$transaction(async (prisma) => {
+			const result = await prismaClient.$transaction(async (prisma) => {
 				const createdOrder = await prisma.order.create({
 					data: {
 						ordererCustomerId: data.order.ordererCustomerId,
@@ -822,7 +814,7 @@ class OrderService {
 		try {
 			let totalPrice = 0;
 
-			const existingOrder = await this.orderRepo.client.order.findUnique({
+			const existingOrder = await prismaClient.order.findUnique({
 				where: { id },
 				include: {
 					SalesChannel: true,
@@ -849,7 +841,7 @@ class OrderService {
 
 			// Cek customer pemesan jika ada perubahan
 			if (data?.order?.ordererCustomerId) {
-				const ordererCustomer = await this.orderRepo.client.customer.findUnique({
+				const ordererCustomer = await prismaClient.customer.findUnique({
 					where: { id: data.order.ordererCustomerId },
 				});
 				if (!ordererCustomer) {
@@ -859,7 +851,7 @@ class OrderService {
 
 			// Cek customer tujuan pengiriman jika ada perubahan
 			if (data?.order?.deliveryTargetCustomerId) {
-				const deliveryTargetCustomer = await this.orderRepo.client.customer.findUnique({
+				const deliveryTargetCustomer = await prismaClient.customer.findUnique({
 					where: { id: data.order.deliveryTargetCustomerId },
 				});
 				if (!deliveryTargetCustomer) {
@@ -873,7 +865,7 @@ class OrderService {
 
 			// Cek tempat pengiriman jika ada perubahan
 			if (data?.order?.deliveryPlaceId) {
-				const deliveryPlace = await this.orderRepo.client.deliveryPlace.findUnique({
+				const deliveryPlace = await prismaClient.deliveryPlace.findUnique({
 					where: { id: data.order.deliveryPlaceId },
 				});
 				if (!deliveryPlace) {
@@ -883,7 +875,7 @@ class OrderService {
 
 			// Cek saluran penjualan jika ada perubahan
 			if (data?.order?.salesChannelId) {
-				const salesChannel = await this.orderRepo.client.salesChannel.findUnique({
+				const salesChannel = await prismaClient.salesChannel.findUnique({
 					where: { id: data.order.salesChannelId },
 				});
 				if (!salesChannel) {
@@ -893,7 +885,7 @@ class OrderService {
 
 			// Cek metode pembayaran untuk detail order jika ada perubahan
 			if (data?.orderDetail?.paymentMethod?.id) {
-				const paymentMethod = await this.orderRepo.client.paymentMethod.findUnique({
+				const paymentMethod = await prismaClient.paymentMethod.findUnique({
 					where: { id: data.orderDetail.paymentMethod.id },
 				});
 				if (!paymentMethod) {
@@ -903,7 +895,7 @@ class OrderService {
 
 			if (data?.orderDetail?.orderProducts && data.orderDetail.orderProducts.length > 0) {
 				// Ambil data customer untuk menentukan kategori harga
-				const customer = await this.orderRepo.client.customer.findUnique({
+				const customer = await prismaClient.customer.findUnique({
 					where: { id: data.order?.ordererCustomerId },
 					select: { category: true },
 				});
@@ -913,7 +905,7 @@ class OrderService {
 					.map((product) => product.productId)
 					.filter((id): id is string => id !== undefined);
 
-				const products = await this.orderRepo.client.product.findMany({
+				const products = await prismaClient.product.findMany({
 					where: {
 						id: {
 							in: productIds,
@@ -1037,7 +1029,7 @@ class OrderService {
 					if (otherFees.installments) {
 						if (otherFees.installments.paymentMethodId && otherFees.installments.amount) {
 							// Cek apakah installment sudah ada untuk order ini
-							const existingInstallment = await this.orderRepo.client.installment.findFirst({
+							const existingInstallment = await prismaClient.installment.findFirst({
 								where: {
 									orderId: id,
 									paymentMethodId: otherFees.installments.paymentMethodId,
@@ -1046,7 +1038,7 @@ class OrderService {
 
 							if (existingInstallment) {
 								// Update installment yang sudah ada
-								await this.orderRepo.client.installment.update({
+								await prismaClient.installment.update({
 									where: { id: existingInstallment.id },
 									data: {
 										paymentMethodId: otherFees.installments.paymentMethodId,
@@ -1059,7 +1051,7 @@ class OrderService {
 								});
 							} else {
 								// Buat installment baru
-								await this.orderRepo.client.installment.create({
+								await prismaClient.installment.create({
 									data: {
 										orderId: id,
 										paymentMethodId: otherFees.installments.paymentMethodId,
@@ -1170,7 +1162,7 @@ class OrderService {
 				}
 			}
 
-			const result = await this.orderRepo.client.$transaction(async (prisma) => {
+			const result = await prismaClient.$transaction(async (prisma) => {
 				const updatedOrder = await prisma.order.update({
 					where: { id },
 					data: {
@@ -1346,7 +1338,7 @@ class OrderService {
 
 	public delete = async (id: string) => {
 		try {
-			const existingOrder = await this.orderRepo.client.order.findUnique({
+			const existingOrder = await prismaClient.order.findUnique({
 				where: { id },
 				include: {
 					OrderDetail: {
@@ -1363,7 +1355,7 @@ class OrderService {
 			}
 
 			// Hapus data terkait terlebih dahulu menggunakan transaksi
-			const result = await this.orderRepo.client.$transaction(async (prisma) => {
+			const result = await prismaClient.$transaction(async (prisma) => {
 				// Hapus shipping services jika ada
 				if (existingOrder.ShippingServices.length > 0) {
 					await prisma.shippingService.deleteMany({
@@ -1419,7 +1411,7 @@ class OrderService {
 					};
 
 					// Ambil data order dengan relasi yang dibutuhkan
-					const orders = await this.orderRepo.client.order.findMany({
+					const orders = await prismaClient.order.findMany({
 						where: where as Prisma.OrderWhereInput,
 						include: {
 							SalesChannel: true,
@@ -1458,12 +1450,22 @@ class OrderService {
 				},
 				(order: OrderWithRelations, index: number) => {
 					const totalItems =
-						order.OrderDetail?.OrderProducts?.reduce((sum: number, op) => sum + (op.productQty || 0), 0) ?? 0;
+						order.OrderDetail?.OrderProducts?.reduce(
+							// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+							(sum: number, op: any) => sum + (op.productQty || 0),
+							0,
+						) ?? 0;
 					const productList =
-						order.OrderDetail?.OrderProducts?.map((op) => {
+						// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+						order.OrderDetail?.OrderProducts?.map((op: any) => {
 							const variants = op.Product?.productVariants || [];
 							const variantInfo =
-								variants.length > 0 ? `(SKU: ${variants.map((v) => v?.sku || "N/A").join(", ")})` : "";
+								variants.length > 0
+									? `(SKU: ${variants
+											// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+											.map((v: any) => v?.sku || "N/A")
+											.join(", ")})`
+									: "";
 
 							// Format nama produk dengan SKU dan jumlah yang lebih mudah dibaca
 							return `${op.Product?.name || "Produk"} ${variantInfo} x${op.productQty || 0}`;
@@ -1655,7 +1657,7 @@ class OrderService {
 					for (const item of data) {
 						console.log(item);
 						console.log(item.OrderDetail?.code);
-						const existingOrder = await this.orderRepo.client.orderDetail.findFirst({
+						const existingOrder = await prismaClient.orderDetail.findFirst({
 							where: {
 								code: item.OrderDetail?.code,
 							},
@@ -1668,7 +1670,7 @@ class OrderService {
 						}
 
 						// TODO: orderer customer
-						await this.orderRepo.client.$transaction(async (tx) => {
+						await prismaClient.$transaction(async (tx) => {
 							const ordererCustomer = await tx.customer.findFirst({
 								where: {
 									name: {
@@ -1933,7 +1935,7 @@ class OrderService {
 
 	public cancelOrders = async (id: string) => {
 		try {
-			const existingOrder = await this.orderRepo.client.order.findUnique({
+			const existingOrder = await prismaClient.order.findUnique({
 				where: { id },
 				include: {
 					OrderDetail: {
@@ -1949,7 +1951,7 @@ class OrderService {
 				return ServiceResponse.failure("Order detail tidak ditemukan", null, StatusCodes.NOT_FOUND);
 			}
 
-			const updatedOrder = await this.orderRepo.client.$transaction(async (prisma) => {
+			const updatedOrder = await prismaClient.$transaction(async (prisma) => {
 				// Update order status to CANCEL
 				const updatedOrderDetail = await prisma.orderDetail.update({
 					where: { id: existingOrder.OrderDetail?.id ?? "" },
@@ -2117,7 +2119,7 @@ class OrderService {
 				}
 			}
 
-			const result = await this.orderRepo.client.order.findMany({
+			const result = await prismaClient.order.findMany({
 				where: filter,
 				include: {
 					SalesChannel: true,

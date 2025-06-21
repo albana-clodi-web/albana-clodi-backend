@@ -1,11 +1,9 @@
 import { createApiResponse } from "@/api-docs/openAPIResponseBuilders";
 import { authorizeRoles } from "@/common/middleware/authorizeRoles";
-import { validateRequest } from "@/common/utils/httpHandlers";
 import { OpenAPIRegistry } from "@asteasolutions/zod-to-openapi";
-import { Roles } from "@prisma/client";
 import express, { type Request, type Response, type Router } from "express";
-import multer from "multer";
 import { z } from "zod";
+import { Roles } from "../../../generated/prisma";
 import { ExpensesSchema } from "../expenses/model";
 import { OrderSchema } from "../order/model";
 import { ProductPriceSchema } from "../product-price/productPriceModel";

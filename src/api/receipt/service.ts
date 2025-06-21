@@ -1,20 +1,14 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
+import prismaClient from "@/config/prisma";
 import { logger } from "@/server";
-import type { CustomerCategories } from "@prisma/client";
 import { StatusCodes } from "http-status-codes";
-import { type ReceiptRepository, receiptRepository } from "./repository";
+import type { CustomerCategories } from "../../../generated/prisma";
 
 interface IReceiptParams {
 	order_id?: string;
 }
 
 class ReportService {
-	private readonly receiptRepo: ReceiptRepository;
-
-	constructor() {
-		this.receiptRepo = receiptRepository;
-	}
-
 	public getReceipt = async (params: IReceiptParams) => {
 		try {
 			// Validasi parameter order_id
@@ -24,7 +18,7 @@ class ReportService {
 
 			try {
 				// Ambil data order berdasarkan ID
-				const order = await this.receiptRepo.client.order.findUnique({
+				const order = await prismaClient.order.findUnique({
 					where: {
 						id: params.order_id,
 					},

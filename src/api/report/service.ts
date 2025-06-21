@@ -1,8 +1,8 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
+import prismaClient from "@/config/prisma";
 import { logger } from "@/server";
-import { type PaymentStatus, Prisma } from "@prisma/client";
 import { StatusCodes } from "http-status-codes";
-import { type ReportRepository, reportRepository } from "./repository";
+import { type PaymentStatus, Prisma } from "../../../generated/prisma";
 
 interface IReportParams {
 	startDate?: string;
@@ -14,12 +14,6 @@ interface IReportParams {
 }
 
 class ReportService {
-	private readonly reportRepo: ReportRepository;
-
-	constructor() {
-		this.reportRepo = reportRepository;
-	}
-
 	public summaryExpenses = async (params: IReportParams) => {
 		try {
 			const { startDate, endDate, month, year, week } = params;
@@ -93,19 +87,19 @@ class ReportService {
 
 			console.log(where);
 			const [expenses, totalExpenses, count] = await Promise.all([
-				this.reportRepo.client.expense.findMany({
+				prismaClient.expense.findMany({
 					where: where as Prisma.ExpenseWhereInput,
 					orderBy: {
 						createdAt: "desc" as const,
 					},
 				}),
-				this.reportRepo.client.expense.aggregate({
+				prismaClient.expense.aggregate({
 					where: where as Prisma.ExpenseWhereInput,
 					_sum: {
 						totalPrice: true,
 					},
 				}),
-				this.reportRepo.client.expense.count({
+				prismaClient.expense.count({
 					where: where as Prisma.ExpenseWhereInput,
 				}),
 			]);
@@ -222,7 +216,7 @@ class ReportService {
 
 			console.log(where);
 			const [orders, ordersAmount, count, expenses] = await Promise.all([
-				this.reportRepo.client.order.findMany({
+				prismaClient.order.findMany({
 					where: where as Prisma.OrderWhereInput,
 					orderBy: {
 						createdAt: "desc" as const,
@@ -249,7 +243,7 @@ class ReportService {
 						ShippingServices: true,
 					},
 				}),
-				this.reportRepo.client.$queryRaw`
+				prismaClient.$queryRaw`
 					SELECT SUM(od.final_price) as total_amount
 					FROM orders o
 					JOIN order_details od ON o.id = od.order_id
@@ -258,10 +252,10 @@ class ReportService {
 					])}
 					AND ${Prisma.sql([where.createdAt?.lte ? `o.created_at <= '${where.createdAt.lte.toISOString()}'` : "TRUE"])}
 				` as Promise<[{ total_amount: number | null }]>,
-				this.reportRepo.client.order.count({
+				prismaClient.order.count({
 					where: where as Prisma.OrderWhereInput,
 				}),
-				this.reportRepo.client.expense.aggregate({
+				prismaClient.expense.aggregate({
 					_sum: {
 						totalPrice: true,
 					},
@@ -468,13 +462,13 @@ class ReportService {
 
 			console.log(where);
 			const [expenses, totalProductPrice, count] = await Promise.all([
-				this.reportRepo.client.productPrice.findMany({
+				prismaClient.productPrice.findMany({
 					where: where as Prisma.ProductPriceWhereInput,
 					orderBy: {
 						createdAt: "desc" as const,
 					},
 				}),
-				this.reportRepo.client.productPrice.aggregate({
+				prismaClient.productPrice.aggregate({
 					where: where as Prisma.ProductPriceWhereInput,
 					_sum: {
 						normal: true,
@@ -484,7 +478,7 @@ class ReportService {
 						reseller: true,
 					},
 				}),
-				this.reportRepo.client.productPrice.count({
+				prismaClient.productPrice.count({
 					where: where as Prisma.ProductPriceWhereInput,
 				}),
 			]);
@@ -605,7 +599,7 @@ class ReportService {
 
 			console.log(where);
 			const [orders, ordersAmount, count, expenses] = await Promise.all([
-				this.reportRepo.client.order.findMany({
+				prismaClient.order.findMany({
 					where: where as Prisma.OrderWhereInput,
 					orderBy: {
 						createdAt: "desc" as const,
@@ -636,7 +630,7 @@ class ReportService {
 						ShippingServices: true,
 					},
 				}),
-				this.reportRepo.client.$queryRaw`
+				prismaClient.$queryRaw`
 					SELECT SUM(od.final_price) as total_amount
 					FROM orders o
 					JOIN order_details od ON o.id = od.order_id
@@ -645,10 +639,10 @@ class ReportService {
 					])}
 					AND ${Prisma.sql([where.createdAt?.lte ? `o.created_at <= '${where.createdAt.lte.toISOString()}'` : "TRUE"])}
 				` as Promise<[{ total_amount: number | null }]>,
-				this.reportRepo.client.order.count({
+				prismaClient.order.count({
 					where: where as Prisma.OrderWhereInput,
 				}),
-				this.reportRepo.client.expense.aggregate({
+				prismaClient.expense.aggregate({
 					_sum: {
 						totalPrice: true,
 					},
@@ -961,7 +955,7 @@ class ReportService {
 			}
 
 			console.log(where);
-			const orders = await this.reportRepo.client.order.findMany({
+			const orders = await prismaClient.order.findMany({
 				where: where as Prisma.OrderWhereInput,
 				orderBy: {
 					createdAt: "desc" as const,
@@ -990,7 +984,7 @@ class ReportService {
 				// Kelompokkan berdasarkan metode pembayaran
 				if (order.OrderDetail?.PaymentMethod) {
 					const paymentMethodId = order.OrderDetail.PaymentMethod.id;
-					const paymentMethodName = await this.reportRepo.client.paymentMethod
+					const paymentMethodName = await prismaClient.paymentMethod
 						.findUnique({
 							where: { id: paymentMethodId },
 						})
@@ -1160,7 +1154,7 @@ class ReportService {
 				};
 			}
 
-			const orders = await this.reportRepo.client.order.findMany({
+			const orders = await prismaClient.order.findMany({
 				where: {
 					...(where as Prisma.OrderWhereInput),
 					OrderDetail: {
