@@ -1,4 +1,4 @@
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import type { NextFunction, Response } from "express";
 import { StatusCodes } from "http-status-codes";
 import jwt from "jsonwebtoken";
@@ -21,7 +21,7 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
 	try {
 		const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret") as { id: string; role: Roles };
 
-		const user = await prismaClient.user.findUnique({
+		const user = await prismaClient().user.findUnique({
 			where: { id: decoded.id },
 			select: {
 				id: true,

@@ -6,7 +6,7 @@ import { generateBarcode } from "@/common/utils/bwipService";
 import { exportData } from "@/common/utils/dataExporter";
 import { importData } from "@/common/utils/dataImporter";
 import { env } from "@/common/utils/envConfig";
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import { StatusCodes } from "http-status-codes";
 import chunk from "lodash.chunk";
 import type { Prisma, ProductDiscount, ProductDiscountTypes } from "../../../generated/prisma";
@@ -224,7 +224,7 @@ class ProductService {
 			}
 
 			const [products, total] = await Promise.all([
-				prismaClient.product.findMany({
+				prismaClient().product.findMany({
 					...queryArgs,
 					skip,
 					take: limit,
@@ -240,7 +240,7 @@ class ProductService {
 						},
 					},
 				}),
-				prismaClient.product.count(),
+				prismaClient().product.count(),
 			]);
 
 			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
@@ -278,7 +278,7 @@ class ProductService {
 
 	public getDetailProduct = async (productId: string) => {
 		try {
-			const foundProduct = await prismaClient.product.findUnique({
+			const foundProduct = await prismaClient().product.findUnique({
 				where: { id: productId },
 				include: {
 					category: true,
@@ -307,7 +307,7 @@ class ProductService {
 
 	public createProduct = async (req: CreateProductType, files: Express.Multer.File[]) => {
 		// Check if product with the same name already exists
-		const foundProduct = await prismaClient.product.findFirst({
+		const foundProduct = await prismaClient().product.findFirst({
 			where: {
 				OR: [
 					{
@@ -331,7 +331,7 @@ class ProductService {
 			return ServiceResponse.failure("Product already exists", null, StatusCodes.BAD_REQUEST);
 		}
 
-		const foundCategory = await prismaClient.category.findFirst({
+		const foundCategory = await prismaClient().category.findFirst({
 			where: {
 				id: req.product.categoryId,
 			},
@@ -359,7 +359,7 @@ class ProductService {
 		try {
 			let newProduct: Partial<Product> = {};
 			// Use transaction to ensure data consistency across related tables
-			await prismaClient.$transaction(async (tx: Prisma.TransactionClient) => {
+			await prismaClient().$transaction(async (tx: Prisma.TransactionClient) => {
 				// Generate barcode
 				let barcodeUrl: string | null = null;
 				if (req.product?.name) {
@@ -448,7 +448,7 @@ class ProductService {
 	public updateProduct = async (req: UpdateProductType, productId: string, files: Express.Multer.File[]) => {
 		try {
 			// Verify product exists before attempting update
-			const existingProduct = await prismaClient.product.findUnique({
+			const existingProduct = await prismaClient().product.findUnique({
 				where: { id: productId },
 				include: {
 					productVariants: true,
@@ -529,7 +529,7 @@ class ProductService {
 
 			let responseData: Product;
 			// Use transaction to ensure data consistency during update
-			await prismaClient.$transaction(async (tx: Prisma.TransactionClient) => {
+			await prismaClient().$transaction(async (tx: Prisma.TransactionClient) => {
 				// Update main product information
 				responseData = (await tx.product.update({
 					where: { id: productId },
@@ -605,7 +605,7 @@ class ProductService {
 
 			if (req && Array.isArray(req.productIds) && req.productIds?.length > 0) {
 				// Delete multiple products
-				foundProducts = (await prismaClient.product.findMany({
+				foundProducts = (await prismaClient().product.findMany({
 					where: { id: { in: req.productIds } },
 				})) as unknown as Product[];
 
@@ -613,12 +613,12 @@ class ProductService {
 					return ServiceResponse.failure("Products not found.", null, StatusCodes.NOT_FOUND);
 				}
 
-				await prismaClient.product.deleteMany({
+				await prismaClient().product.deleteMany({
 					where: { id: { in: req.productIds } },
 				});
 			} else {
 				// Delete single product
-				foundProducts = (await prismaClient.product.findFirst({
+				foundProducts = (await prismaClient().product.findFirst({
 					where: { id: productId },
 				})) as unknown as Product[];
 
@@ -626,7 +626,7 @@ class ProductService {
 					return ServiceResponse.failure("Product not found.", null, StatusCodes.NOT_FOUND);
 				}
 
-				await prismaClient.product.delete({
+				await prismaClient().product.delete({
 					where: { id: productId },
 				});
 			}
@@ -670,7 +670,7 @@ class ProductService {
 			>(
 				exportParams,
 				async (where) => {
-					const products = await prismaClient.product.findMany({
+					const products = await prismaClient().product.findMany({
 						where: where as Prisma.ProductWhereInput,
 						orderBy: { createdAt: "desc" },
 						include: {
@@ -836,7 +836,7 @@ class ProductService {
 					for (const batch of batches) {
 						await Promise.all(
 							batch.map((product) =>
-								prismaClient.product.create({
+								prismaClient().product.create({
 									data: product,
 									include: {
 										productVariants: {

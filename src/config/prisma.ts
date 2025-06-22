@@ -1,11 +1,18 @@
+import { env } from "@/common/utils/envConfig";
 import { PrismaClient } from "../../generated/prisma";
 
-const prismaClient = new PrismaClient({
-	log: [
-		{ level: "error", emit: "stdout" },
-		{ level: "info", emit: "stdout" },
-		{ level: "warn", emit: "stdout" },
-	],
-});
+const appPrismaInstances: Record<string, PrismaClient> = {};
 
-export default prismaClient;
+export const prismaClient = (): PrismaClient => {
+	const dbUrl = env.DATABASE_POOL_URL as string;
+	if (!appPrismaInstances[dbUrl]) {
+		appPrismaInstances[dbUrl] = new PrismaClient({
+			datasources: {
+				db: {
+					url: dbUrl,
+				},
+			},
+		});
+	}
+	return appPrismaInstances[dbUrl];
+};

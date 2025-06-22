@@ -1,5 +1,5 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import { logger } from "@/server";
 import { StatusCodes } from "http-status-codes";
 import type { CustomerCategories } from "../../../generated/prisma";
@@ -18,7 +18,7 @@ class ReportService {
 
 			try {
 				// Ambil data order berdasarkan ID
-				const order = await prismaClient.order.findUnique({
+				const order = await prismaClient().order.findUnique({
 					where: {
 						id: params.order_id,
 					},
