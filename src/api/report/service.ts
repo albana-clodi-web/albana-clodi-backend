@@ -1,5 +1,5 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import { logger } from "@/server";
 import { StatusCodes } from "http-status-codes";
 import { type PaymentStatus, Prisma } from "../../../generated/prisma";
@@ -87,19 +87,19 @@ class ReportService {
 
 			console.log(where);
 			const [expenses, totalExpenses, count] = await Promise.all([
-				prismaClient.expense.findMany({
+				prismaClient().expense.findMany({
 					where: where as Prisma.ExpenseWhereInput,
 					orderBy: {
 						createdAt: "desc" as const,
 					},
 				}),
-				prismaClient.expense.aggregate({
+				prismaClient().expense.aggregate({
 					where: where as Prisma.ExpenseWhereInput,
 					_sum: {
 						totalPrice: true,
 					},
 				}),
-				prismaClient.expense.count({
+				prismaClient().expense.count({
 					where: where as Prisma.ExpenseWhereInput,
 				}),
 			]);
@@ -216,7 +216,7 @@ class ReportService {
 
 			console.log(where);
 			const [orders, ordersAmount, count, expenses] = await Promise.all([
-				prismaClient.order.findMany({
+				prismaClient().order.findMany({
 					where: where as Prisma.OrderWhereInput,
 					orderBy: {
 						createdAt: "desc" as const,
@@ -243,7 +243,7 @@ class ReportService {
 						ShippingServices: true,
 					},
 				}),
-				prismaClient.$queryRaw`
+				prismaClient().$queryRaw`
 					SELECT SUM(od.final_price) as total_amount
 					FROM orders o
 					JOIN order_details od ON o.id = od.order_id
@@ -252,10 +252,10 @@ class ReportService {
 					])}
 					AND ${Prisma.sql([where.createdAt?.lte ? `o.created_at <= '${where.createdAt.lte.toISOString()}'` : "TRUE"])}
 				` as Promise<[{ total_amount: number | null }]>,
-				prismaClient.order.count({
+				prismaClient().order.count({
 					where: where as Prisma.OrderWhereInput,
 				}),
-				prismaClient.expense.aggregate({
+				prismaClient().expense.aggregate({
 					_sum: {
 						totalPrice: true,
 					},
@@ -462,13 +462,13 @@ class ReportService {
 
 			console.log(where);
 			const [expenses, totalProductPrice, count] = await Promise.all([
-				prismaClient.productPrice.findMany({
+				prismaClient().productPrice.findMany({
 					where: where as Prisma.ProductPriceWhereInput,
 					orderBy: {
 						createdAt: "desc" as const,
 					},
 				}),
-				prismaClient.productPrice.aggregate({
+				prismaClient().productPrice.aggregate({
 					where: where as Prisma.ProductPriceWhereInput,
 					_sum: {
 						normal: true,
@@ -478,7 +478,7 @@ class ReportService {
 						reseller: true,
 					},
 				}),
-				prismaClient.productPrice.count({
+				prismaClient().productPrice.count({
 					where: where as Prisma.ProductPriceWhereInput,
 				}),
 			]);
@@ -599,7 +599,7 @@ class ReportService {
 
 			console.log(where);
 			const [orders, ordersAmount, count, expenses] = await Promise.all([
-				prismaClient.order.findMany({
+				prismaClient().order.findMany({
 					where: where as Prisma.OrderWhereInput,
 					orderBy: {
 						createdAt: "desc" as const,
@@ -630,7 +630,7 @@ class ReportService {
 						ShippingServices: true,
 					},
 				}),
-				prismaClient.$queryRaw`
+				prismaClient().$queryRaw`
 					SELECT SUM(od.final_price) as total_amount
 					FROM orders o
 					JOIN order_details od ON o.id = od.order_id
@@ -639,10 +639,10 @@ class ReportService {
 					])}
 					AND ${Prisma.sql([where.createdAt?.lte ? `o.created_at <= '${where.createdAt.lte.toISOString()}'` : "TRUE"])}
 				` as Promise<[{ total_amount: number | null }]>,
-				prismaClient.order.count({
+				prismaClient().order.count({
 					where: where as Prisma.OrderWhereInput,
 				}),
-				prismaClient.expense.aggregate({
+				prismaClient().expense.aggregate({
 					_sum: {
 						totalPrice: true,
 					},
@@ -955,7 +955,7 @@ class ReportService {
 			}
 
 			console.log(where);
-			const orders = await prismaClient.order.findMany({
+			const orders = await prismaClient().order.findMany({
 				where: where as Prisma.OrderWhereInput,
 				orderBy: {
 					createdAt: "desc" as const,
@@ -984,8 +984,8 @@ class ReportService {
 				// Kelompokkan berdasarkan metode pembayaran
 				if (order.OrderDetail?.PaymentMethod) {
 					const paymentMethodId = order.OrderDetail.PaymentMethod.id;
-					const paymentMethodName = await prismaClient.paymentMethod
-						.findUnique({
+					const paymentMethodName = await prismaClient()
+						.paymentMethod.findUnique({
 							where: { id: paymentMethodId },
 						})
 						.then((method) => method?.bankName || "");
@@ -1154,7 +1154,7 @@ class ReportService {
 				};
 			}
 
-			const orders = await prismaClient.order.findMany({
+			const orders = await prismaClient().order.findMany({
 				where: {
 					...(where as Prisma.OrderWhereInput),
 					OrderDetail: {

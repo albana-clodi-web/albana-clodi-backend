@@ -2,7 +2,7 @@ import { ServiceResponse } from "@/common/models/serviceResponse";
 import type { OrderWithRelations } from "@/common/types/orderExport";
 import { exportData } from "@/common/utils/dataExporter";
 import { importData } from "@/common/utils/dataImporter";
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import { logger } from "@/server";
 import { StatusCodes } from "http-status-codes";
 import { v4 as uuidv4 } from "uuid";
@@ -21,10 +21,6 @@ class OrderService {
 	public getAll = async (query: OrderQueryType["query"]) => {
 		try {
 			type OrderFilter = Prisma.OrderWhereInput;
-
-			console.log("==========QUERY=========");
-			console.log(query);
-			console.log("=========================");
 
 			const filter: OrderFilter = {};
 
@@ -126,37 +122,25 @@ class OrderService {
 				filter.deliveryPlaceId = queryParams.deliveryPlaceId;
 			}
 
-			// Filter berdasarkan status order
 			if (queryParams.orderStatus) {
-				// Validasi nilai status order
 				const validPaymentStatuses = ["settlement", "pending", "cancel", "installments"];
 				const paymentStatus = validPaymentStatuses.includes(queryParams.orderStatus)
 					? (queryParams.orderStatus as PaymentStatus)
 					: undefined;
 
 				if (paymentStatus) {
-					if (filter.OrderDetail) {
-						filter.OrderDetail.paymentStatus = paymentStatus;
-					} else {
-						filter.OrderDetail = {
-							paymentStatus: paymentStatus,
-						};
+					if (!filter.OrderDetail) {
+						filter.OrderDetail = {};
 					}
+					filter.OrderDetail.paymentStatus = paymentStatus;
 				}
 			}
 
 			if (queryParams.unavailableReceipt === "yes") {
-				console.log("filteredd");
-				if (filter.OrderDetail) {
-					console.log("filteredd 2");
-					filter.OrderDetail = {
-						receiptNumber: null,
-					};
-				} else {
-					filter.OrderDetail = {
-						receiptNumber: null,
-					};
+				if (!filter.OrderDetail) {
+					filter.OrderDetail = {};
 				}
+				filter.OrderDetail.receiptNumber = null;
 			}
 
 			// Filter berdasarkan ID order
@@ -185,7 +169,11 @@ class OrderService {
 					},
 				};
 
-				filter.OR = [{ OrdererCustomer: customerNameFilter }, { DeliveryTargetCustomer: customerNameFilter }];
+				filter.OR = [
+					...(filter.OR || []),
+					{ OrdererCustomer: customerNameFilter },
+					{ DeliveryTargetCustomer: customerNameFilter },
+				];
 			}
 
 			// Filter berdasarkan nama produk
@@ -194,18 +182,16 @@ class OrderService {
 					filter.OrderDetail = {};
 				}
 
-				if (!filter.OrderDetail.OrderProducts) {
-					filter.OrderDetail.OrderProducts = {
-						some: {
-							Product: {
-								name: {
-									contains: queryParams.productName,
-									mode: "insensitive" as const,
-								},
+				filter.OrderDetail.OrderProducts = {
+					some: {
+						Product: {
+							name: {
+								contains: queryParams.productName,
+								mode: "insensitive" as const,
 							},
 						},
-					};
-				}
+					},
+				};
 			}
 
 			// Filter berdasarkan nomor resi
@@ -229,31 +215,36 @@ class OrderService {
 					},
 				};
 
-				filter.OR = [
-					...(filter.OR || []),
-					{ OrdererCustomer: phoneNumberFilter },
-					{ DeliveryTargetCustomer: phoneNumberFilter },
-				];
+				if (!filter.OR) {
+					filter.OR = [];
+				} else if (!Array.isArray(filter.OR)) {
+					filter.OR = [filter.OR];
+				}
+
+				filter.OR.push({ OrdererCustomer: phoneNumberFilter }, { DeliveryTargetCustomer: phoneNumberFilter });
 			}
 
-			console.log("==========FILTER=========");
-			console.log(filter);
-			console.log("=========================");
-
-			const result = await prismaClient.order.findMany({
+			// Buat query untuk mendapatkan semua data dalam satu kali query
+			const orders = await prismaClient().order.findMany({
 				where: filter,
 				orderBy: {
-					createdAt: "desc", // Menampilkan waktu terbaru (descending)
+					createdAt: "desc",
 				},
 				include: {
-					Installment: true,
 					SalesChannel: true,
 					DeliveryPlace: true,
 					OrdererCustomer: true,
 					DeliveryTargetCustomer: true,
+					Installment: true,
 					OrderDetail: {
-						where: { ...(queryParams.paymentStatus && { paymentStatus: queryParams.paymentStatus }) },
 						include: {
+							PaymentMethod: queryParams.paymentMethodId
+								? {
+										where: {
+											id: queryParams.paymentMethodId,
+										},
+									}
+								: true,
 							OrderProducts: {
 								where: queryParams.productId ? { productId: queryParams.productId } : undefined,
 								include: {
@@ -264,19 +255,27 @@ class OrderService {
 									},
 								},
 							},
-							PaymentMethod:
-								queryParams.paymentMethodId || queryParams.paymentStatus
-									? {
-											where: {
-												...(queryParams.paymentMethodId && { id: queryParams.paymentMethodId }),
-											},
-										}
-									: true,
 						},
+						where: queryParams.paymentStatus ? { paymentStatus: queryParams.paymentStatus } : undefined,
 					},
 					ShippingServices: true,
 				},
 			});
+
+			// Transformasi data untuk mempertahankan struktur respons yang sama
+			const result = orders.map((order) => ({
+				...order,
+				Installment:
+					order?.Installment && Array.isArray(order.Installment) && order.Installment.length > 0
+						? order.Installment
+						: null,
+				OrderDetail: order.OrderDetail
+					? {
+							...order.OrderDetail,
+							OrderProducts: order.OrderDetail.OrderProducts,
+						}
+					: null,
+			}));
 
 			// Filter hasil jika ada filter untuk payment method atau product
 			let filteredResult = result;
@@ -300,7 +299,7 @@ class OrderService {
 
 	public getOne = async (id: string) => {
 		try {
-			const result = await prismaClient.order.findUnique({
+			const result = await prismaClient().order.findUnique({
 				where: { id },
 				include: {
 					Installment: true,
@@ -347,7 +346,7 @@ class OrderService {
 
 			// Cek customer pemesan
 			if (data.order.ordererCustomerId) {
-				const ordererCustomer = await prismaClient.customer.findUnique({
+				const ordererCustomer = await prismaClient().customer.findUnique({
 					where: { id: data.order.ordererCustomerId },
 				});
 				if (!ordererCustomer) {
@@ -357,7 +356,7 @@ class OrderService {
 
 			// Cek customer tujuan pengiriman
 			if (data.order.deliveryTargetCustomerId) {
-				const deliveryTargetCustomer = await prismaClient.customer.findUnique({
+				const deliveryTargetCustomer = await prismaClient().customer.findUnique({
 					where: { id: data.order.deliveryTargetCustomerId },
 				});
 				if (!deliveryTargetCustomer) {
@@ -371,7 +370,7 @@ class OrderService {
 
 			// Cek tempat pengiriman
 			if (data.order.deliveryPlaceId) {
-				const deliveryPlace = await prismaClient.deliveryPlace.findUnique({
+				const deliveryPlace = await prismaClient().deliveryPlace.findUnique({
 					where: { id: data.order.deliveryPlaceId },
 				});
 				if (!deliveryPlace) {
@@ -381,7 +380,7 @@ class OrderService {
 
 			// Cek saluran penjualan
 			if (data.order.salesChannelId) {
-				const salesChannel = await prismaClient.salesChannel.findUnique({
+				const salesChannel = await prismaClient().salesChannel.findUnique({
 					where: { id: data.order.salesChannelId },
 				});
 				if (!salesChannel) {
@@ -393,7 +392,7 @@ class OrderService {
 			if (data.orderDetail.detail) {
 				// Validasi kode order jika ada
 				if (data.orderDetail.detail.code) {
-					const existingOrder = await prismaClient.orderDetail.findFirst({
+					const existingOrder = await prismaClient().orderDetail.findFirst({
 						where: { code: data.orderDetail.detail.code },
 					});
 
@@ -483,7 +482,7 @@ class OrderService {
 			}
 
 			if (data.orderDetail.paymentMethod?.id) {
-				const paymentMethod = await prismaClient.paymentMethod.findUnique({
+				const paymentMethod = await prismaClient().paymentMethod.findUnique({
 					where: { id: data.orderDetail.paymentMethod.id },
 				});
 				if (!paymentMethod) {
@@ -491,15 +490,26 @@ class OrderService {
 				}
 			}
 
-			// Cek produk untuk order products
-			for (const orderProduct of data.orderDetail.orderProducts) {
-				if (orderProduct.productId) {
-					const product = await prismaClient.product.findUnique({
-						where: { id: orderProduct.productId },
-					});
-					if (!product) {
-						return ServiceResponse.failure("Data produk tidak ditemukan", null, StatusCodes.NOT_FOUND);
-					}
+			// Validasi keberadaan produk untuk order products
+			const productIds = data.orderDetail.orderProducts
+				.filter((orderProduct) => orderProduct.productId)
+				.map((orderProduct) => orderProduct.productId);
+
+			if (productIds.length > 0) {
+				const products = await prismaClient().product.findMany({
+					where: { id: { in: productIds.filter((id): id is string => id !== undefined) } },
+					select: { id: true },
+				});
+
+				const foundProductIds = products.map((product) => product.id);
+				const missingProductIds = productIds.filter((id) => id !== undefined && !foundProductIds.includes(id));
+
+				if (missingProductIds.length > 0) {
+					return ServiceResponse.failure(
+						`Data produk dengan ID ${missingProductIds.join(", ")} tidak ditemukan`,
+						null,
+						StatusCodes.NOT_FOUND,
+					);
 				}
 			}
 
@@ -512,292 +522,434 @@ class OrderService {
 				}
 			}
 
-			const result = await prismaClient.$transaction(async (prisma) => {
-				const createdOrder = await prisma.order.create({
-					data: {
-						ordererCustomerId: data.order.ordererCustomerId,
-						deliveryTargetCustomerId: data.order.deliveryTargetCustomerId,
-						deliveryPlaceId: data.order.deliveryPlaceId,
-						salesChannelId: data.order.salesChannelId,
-						orderDate: data.order.orderDate ? new Date(data.order.orderDate) : undefined,
-						note: data.order.note,
-					},
-				});
+			// Langkah 1: Buat order
+			const createdOrder = await prismaClient().order.create({
+				data: {
+					ordererCustomerId: data.order.ordererCustomerId,
+					deliveryTargetCustomerId: data.order.deliveryTargetCustomerId,
+					deliveryPlaceId: data.order.deliveryPlaceId,
+					salesChannelId: data.order.salesChannelId,
+					orderDate: data.order.orderDate ? new Date(data.order.orderDate) : undefined,
+					note: data.order.note,
+				},
+			});
 
-				// Ambil data customer untuk menentukan kategori harga
-				const customer = await prisma.customer.findUnique({
-					where: { id: data.order.ordererCustomerId },
-					select: { category: true },
-				});
+			// Langkah 2: Ambil data customer untuk menentukan kategori harga
+			const customer = await prismaClient().customer.findUnique({
+				where: { id: data.order.ordererCustomerId },
+				select: { category: true },
+			});
 
-				if (!customer) {
-					throw new Error("Data customer tidak ditemukan");
-				}
+			if (!customer) {
+				return ServiceResponse.failure("Data customer tidak ditemukan", null, StatusCodes.NOT_FOUND);
+			}
 
-				// Hitung harga produk berdasarkan kategori customer
-				for (const orderProduct of data.orderDetail.orderProducts) {
-					if (!orderProduct.productId) continue;
+			// Simpan kategori customer untuk digunakan nanti
+			const customerCategory = customer.category || "CUSTOMER";
 
-					const product = await prisma.product.findUnique({
-						where: { id: orderProduct.productId },
+			// Langkah 3: Hitung harga produk berdasarkan kategori customer
+			const products = await prismaClient().product.findMany({
+				where: { id: { in: productIds.filter((id): id is string => id !== undefined) } },
+				include: {
+					productVariants: {
 						include: {
-							productVariants: {
-								include: {
-									productPrices: true,
-								},
-							},
+							productPrices: true,
 						},
-					});
-
-					if (!product) continue;
-
-					// Ambil harga dari product price berdasarkan kategori customer
-					let productPrice = 0;
-					const variant = product.productVariants[0]; // Ambil variant pertama jika ada
-
-					if (variant?.productPrices && variant.productPrices.length > 0) {
-						const priceData = variant.productPrices[0]; // Ambil data harga pertama dari array
-
-						// Tentukan harga berdasarkan kategori customer
-						switch (customer.category) {
-							case "CUSTOMER":
-							case "DROPSHIPPER":
-								productPrice = Number(priceData.normal) || 0;
-								break;
-							case "MEMBER":
-								productPrice = Number(priceData.member) || Number(priceData.normal) || 0;
-								break;
-							case "RESELLER":
-								productPrice = Number(priceData.reseller) || Number(priceData.normal) || 0;
-								break;
-							case "AGENT":
-								productPrice = Number(priceData.agent) || Number(priceData.normal) || 0;
-								break;
-							default:
-								productPrice = Number(priceData.normal) || 0;
-						}
-					}
-
-					// Tambahkan ke total price (harga * quantity)
-					totalPrice += productPrice * Number(orderProduct.productQty);
-				}
-
-				// Tambahkan other fees jika ada
-				if (data.orderDetail.detail.otherFees) {
-					const otherFees = data.orderDetail.detail.otherFees;
-
-					// Tambahkan biaya asuransi jika ada
-					if (otherFees.insurance) {
-						totalPrice += Number(otherFees.insurance);
-					}
-
-					if (otherFees.installments) {
-						if (otherFees.installments.paymentMethodId && otherFees.installments.amount) {
-							await prisma.installment.create({
-								data: {
-									orderId: createdOrder.id,
-									paymentMethodId: otherFees.installments.paymentMethodId,
-									paymentDate: otherFees.installments.paymentDate
-										? new Date(otherFees.installments.paymentDate)
-										: new Date(),
-									amount: Number(otherFees.installments.amount),
-									isPaid: true,
-								},
-							});
-						}
-
-						if (otherFees.installments.amount) {
-							totalPrice += Number(otherFees.installments.amount);
-						}
-					}
-
-					// Proses diskon produk jika ada
-					if (otherFees.productDiscount && otherFees.productDiscount.length > 0) {
-						for (const discount of otherFees.productDiscount) {
-							// Cari produk yang sesuai dengan ID varian
-							const product = data.orderDetail.orderProducts.find(
-								(p) => p.productVariantId === discount.produkVariantId,
-							);
-
-							// Ambil data harga produk dari database berdasarkan varian produk
-							const productPriceDB = await prisma.productPrice.findFirst({
-								where: { productVariantId: product?.productVariantId },
-							});
-
-							// Tentukan harga yang digunakan berdasarkan kategori pelanggan
-							let discountProductPrice = 0;
-							const customer = await prisma.customer.findUnique({
-								where: { id: data.order.ordererCustomerId },
-								select: { category: true },
-							});
-
-							if (productPriceDB) {
-								const customerCategory = customer?.category;
-								switch (customerCategory) {
-									case "CUSTOMER":
-									case "DROPSHIPPER":
-										discountProductPrice = Number(productPriceDB.normal) || 0;
-										break;
-									case "MEMBER":
-										discountProductPrice = Number(productPriceDB.member) || Number(productPriceDB.normal) || 0;
-										break;
-									case "RESELLER":
-										discountProductPrice = Number(productPriceDB.reseller) || Number(productPriceDB.normal) || 0;
-										break;
-									case "AGENT":
-										discountProductPrice = Number(productPriceDB.agent) || Number(productPriceDB.normal) || 0;
-										break;
-									default:
-										discountProductPrice = Number(productPriceDB.normal) || 0;
-								}
-							}
-
-							if (product) {
-								// Hitung jumlah diskon berdasarkan tipe
-								let discountAmount = 0;
-								if (discount.discountType === "percent") {
-									// Hitung diskon persentase dari harga produk
-									discountAmount =
-										(Number(discountProductPrice) * Number(product.productQty) * Number(discount.discountAmount)) / 100;
-								} else if (discount.discountType === "nominal") {
-									// Diskon nominal langsung
-									discountAmount = Number(discount.discountAmount) * Number(product.productQty);
-								}
-
-								// Kurangi total harga dengan diskon
-								totalPrice -= Number(discountAmount);
-							}
-						}
-					}
-
-					// Tambahkan biaya packaging jika ada
-					if (otherFees.packaging) {
-						totalPrice += Number(otherFees.packaging);
-					}
-
-					// Tambahkan biaya untuk order berdasarkan berat
-					if (otherFees.weight) {
-						const orderWeight = 1; // Berat order dalam kg
-						const pricePerKg = Number(otherFees.weight); // Harga per kg dari otherFees.weight
-						totalPrice += Number(orderWeight) * Number(pricePerKg);
-					}
-
-					// Tambahkan biaya pengiriman jika ada
-					if (otherFees.shippingCost) {
-						if (otherFees.shippingCost.cost) {
-							totalPrice += Number(otherFees.shippingCost.cost);
-						}
-					}
-
-					// Proses discount jika ada
-					if (otherFees.discount) {
-						// Jika discount dalam bentuk persentase
-						if (otherFees.discount.type === "percent" && otherFees.discount.value) {
-							const discountAmount = (Number(totalPrice) * Number(otherFees.discount.value)) / 100;
-							totalPrice -= Number(discountAmount);
-						}
-						// Jika discount dalam bentuk nominal
-						else if (otherFees.discount.type === "nominal" && otherFees.discount.value) {
-							totalPrice -= Number(otherFees.discount.value);
-						}
-					}
-				}
-
-				// Buat order detail
-				const createdOrderDetail = await prisma.orderDetail.create({
-					data: {
-						orderId: createdOrder.id,
-						paymentMethodId: data.orderDetail.paymentMethod?.id,
-						code:
-							data.orderDetail.detail.code ||
-							`OID-${Date.now().toString().slice(-4)}-${Math.floor(1000 + Math.random() * 9000)}`,
-						otherFees: data.orderDetail.detail.otherFees,
-						originalFinalPrice: Number(totalPrice),
-						finalPrice: data.orderDetail.detail.originalFinalPrice
-							? Number(data.orderDetail.detail.originalFinalPrice)
-							: Number(totalPrice),
-						paymentStatus: data.orderDetail.paymentMethod?.status
-							? (data.orderDetail.paymentMethod?.status.toUpperCase() as PaymentStatus)
-							: undefined,
-						paymentDate: data.orderDetail.paymentMethod?.date
-							? new Date(data.orderDetail.paymentMethod?.date)
-							: undefined,
-						receiptNumber: data.orderDetail.detail.receiptNumber,
 					},
-				});
+				},
+			});
 
-				// Buat order products
-				console.log(data.orderDetail.orderProducts);
-				for (const orderProduct of data.orderDetail.orderProducts) {
-					// Validasi productId
-					if (!orderProduct.productId) {
-						throw new Error("productId is required");
+			// Map produk berdasarkan ID untuk akses cepat
+			const productMap = new Map();
+			for (const product of products) {
+				productMap.set(product.id, product);
+			}
+
+			for (const orderProduct of data.orderDetail.orderProducts) {
+				if (!orderProduct.productId) continue;
+
+				const product = productMap.get(orderProduct.productId);
+				if (!product) continue;
+
+				// Ambil harga dari product price berdasarkan kategori customer
+				let productPrice = 0;
+				const variant = product.productVariants[0]; // Ambil variant pertama jika ada
+
+				if (variant?.productPrices && variant.productPrices.length > 0) {
+					const priceData = variant.productPrices[0]; // Ambil data harga pertama dari array
+
+					// Tentukan harga berdasarkan kategori customer
+					switch (customerCategory) {
+						case "CUSTOMER":
+						case "DROPSHIPPER":
+							productPrice = Number(priceData.normal) || 0;
+							break;
+						case "MEMBER":
+							productPrice = Number(priceData.member) || Number(priceData.normal) || 0;
+							break;
+						case "RESELLER":
+							productPrice = Number(priceData.reseller) || Number(priceData.normal) || 0;
+							break;
+						case "AGENT":
+							productPrice = Number(priceData.agent) || Number(priceData.normal) || 0;
+							break;
+						default:
+							productPrice = Number(priceData.normal) || 0;
 					}
+				}
 
-					// Cek keberadaan dan stok varian produk
-					const productVariant = await prisma.productVariant.findUnique({
-						where: { id: orderProduct.productVariantId },
-					});
+				// Tambahkan ke total price (harga * quantity)
+				totalPrice += productPrice * Number(orderProduct.productQty);
+			}
 
-					// Validasi keberadaan varian produk
-					if (!productVariant) {
-						throw new Error("product variant is not found");
-					}
+			// Langkah 4: Tambahkan other fees jika ada
+			if (data.orderDetail.detail.otherFees) {
+				const otherFees = data.orderDetail.detail.otherFees;
 
-					// Validasi ketersediaan stok
-					if (productVariant.stock !== null && productVariant.stock < orderProduct.productQty) {
-						throw new Error(`Stok produk dengan ID ${orderProduct.productVariantId} tidak mencukupi`);
-					}
+				// Tambahkan biaya asuransi
+				if (otherFees.insurance) {
+					totalPrice += Number(otherFees.insurance);
+				}
 
-					// Kurangi stok produk
-					await prisma.productVariant.update({
-						where: { id: orderProduct.productVariantId },
-						data: { stock: { decrement: orderProduct.productQty } },
-					});
-
-					// Buat entri order product
-					await prisma.orderProduct.create({
+				// Proses cicilan
+				// biome-ignore lint/complexity/useOptionalChain: <explanation>
+				if (otherFees.installments && otherFees.installments.paymentMethodId && otherFees.installments.amount) {
+					await prismaClient().installment.create({
 						data: {
 							orderId: createdOrder.id,
-							orderDetailId: createdOrderDetail.id,
-							productId: orderProduct.productId,
-							productQty: orderProduct.productQty,
-							productVariantId: orderProduct.productVariantId,
+							paymentMethodId: otherFees.installments.paymentMethodId,
+							paymentDate: otherFees.installments.paymentDate
+								? new Date(otherFees.installments.paymentDate)
+								: new Date(),
+							amount: Number(otherFees.installments.amount),
+							isPaid: true,
 						},
 					});
-				}
-				console.log("ORDER PRODUCT");
 
-				// Buat shipping services jika ada
-				if (data.orderDetail.shippingServices && data.orderDetail.shippingServices.length > 0) {
-					const shippingServicesPromises = data.orderDetail.shippingServices.map((shippingService) =>
-						prisma.shippingService.create({
+					totalPrice += Number(otherFees.installments.amount);
+				}
+
+				// Proses diskon produk
+				if (otherFees.productDiscount && otherFees.productDiscount.length > 0) {
+					for (const discount of otherFees.productDiscount) {
+						const product = data.orderDetail.orderProducts.find((p) => p.productVariantId === discount.produkVariantId);
+						if (!product) continue;
+
+						const productPriceDB = await prismaClient().productPrice.findFirst({
+							where: { productVariantId: product.productVariantId },
+						});
+
+						if (!productPriceDB) continue;
+						let discountProductPrice = 0;
+						// Tentukan harga berdasarkan kategori pelanggan
+						switch (customerCategory) {
+							case "CUSTOMER":
+							case "DROPSHIPPER":
+								discountProductPrice = Number(productPriceDB.normal) || 0;
+								break;
+							case "MEMBER":
+								discountProductPrice = Number(productPriceDB.member) || Number(productPriceDB.normal) || 0;
+								break;
+							case "RESELLER":
+								discountProductPrice = Number(productPriceDB.reseller) || Number(productPriceDB.normal) || 0;
+								break;
+							case "AGENT":
+								discountProductPrice = Number(productPriceDB.agent) || Number(productPriceDB.normal) || 0;
+								break;
+							default:
+								discountProductPrice = Number(productPriceDB.normal) || 0;
+						}
+
+						// Hitung diskon
+						const productQty = Number(product.productQty);
+						let discountAmount = 0;
+
+						if (discount.discountType === "percent") {
+							discountAmount = (discountProductPrice * productQty * Number(discount.discountAmount)) / 100;
+						} else {
+							discountAmount = Number(discount.discountAmount) * productQty;
+						}
+
+						totalPrice -= discountAmount;
+					}
+				}
+
+				// Tambahkan biaya packaging
+				if (otherFees.packaging) {
+					totalPrice += Number(otherFees.packaging);
+				}
+
+				// Tambahkan biaya berdasarkan berat
+				if (otherFees.weight) {
+					const orderWeight = 1; // Berat order dalam kg
+					totalPrice += orderWeight * Number(otherFees.weight);
+				}
+
+				// Tambahkan biaya pengiriman
+				if (otherFees.shippingCost?.cost) {
+					totalPrice += Number(otherFees.shippingCost.cost);
+				}
+
+				// Proses diskon keseluruhan
+				if (otherFees.discount?.value) {
+					if (otherFees.discount.type === "percent") {
+						totalPrice -= (totalPrice * Number(otherFees.discount.value)) / 100;
+					} else {
+						totalPrice -= Number(otherFees.discount.value);
+					}
+				}
+			}
+
+			// Langkah 5: Buat order detail
+
+			// Langkah 3: Hitung harga produk berdasarkan kategori customer
+			for (const orderProduct of data.orderDetail.orderProducts) {
+				if (!orderProduct.productId) continue;
+
+				const product = await prismaClient().product.findUnique({
+					where: { id: orderProduct.productId },
+					include: {
+						productVariants: {
+							include: {
+								productPrices: true,
+							},
+						},
+					},
+				});
+
+				if (!product) continue;
+
+				// Ambil harga dari product price berdasarkan kategori customer
+				let productPrice = 0;
+				const variant = product.productVariants[0]; // Ambil variant pertama jika ada
+
+				if (variant?.productPrices && variant.productPrices.length > 0) {
+					const priceData = variant.productPrices[0]; // Ambil data harga pertama dari array
+
+					const categoryPriceMap = {
+						CUSTOMER: Number(priceData.normal) || 0,
+						DROPSHIPPER: Number(priceData.normal) || 0,
+						MEMBER: Number(priceData.member) || Number(priceData.normal) || 0,
+						RESELLER: Number(priceData.reseller) || Number(priceData.normal) || 0,
+						AGENT: Number(priceData.agent) || Number(priceData.normal) || 0,
+					};
+
+					productPrice =
+						categoryPriceMap[customer.category as keyof typeof categoryPriceMap] || Number(priceData.normal) || 0;
+				}
+
+				// Tambahkan ke total price (harga * quantity)
+				totalPrice += productPrice * Number(orderProduct.productQty);
+			}
+
+			// Langkah 4: Proses other fees
+			if (data.orderDetail.detail.otherFees) {
+				const otherFees = data.orderDetail.detail.otherFees;
+
+				// Tambahkan biaya asuransi jika ada
+				if (otherFees.insurance) {
+					totalPrice += Number(otherFees.insurance);
+				}
+
+				// Proses installments jika ada
+				if (otherFees.installments) {
+					if (otherFees.installments.paymentMethodId && otherFees.installments.amount) {
+						await prismaClient().installment.create({
 							data: {
 								orderId: createdOrder.id,
-								shippingName: shippingService.shippingName,
-								serviceName: shippingService.serviceName,
-								weight: shippingService.weight,
-								isCod: shippingService.isCod,
-								shippingCost: shippingService.shippingCost,
-								shippingCashback: shippingService.shippingCashback,
-								shippingCostNet: shippingService.shippingCostNet,
-								grandtotal: shippingService.grandtotal,
-								serviceFee: shippingService.serviceFee,
-								netIncome: shippingService.netIncome,
-								etd: shippingService.etd,
-								type: shippingService.type,
+								paymentMethodId: otherFees.installments.paymentMethodId,
+								paymentDate: otherFees.installments.paymentDate
+									? new Date(otherFees.installments.paymentDate)
+									: new Date(),
+								amount: Number(otherFees.installments.amount),
+								isPaid: true,
 							},
-						}),
-					);
+						});
+					}
 
-					await Promise.all(shippingServicesPromises);
+					if (otherFees.installments.amount) {
+						totalPrice += Number(otherFees.installments.amount);
+					}
 				}
 
-				return {
-					...createdOrder,
-					orderDetail: createdOrderDetail,
-				};
+				// Proses diskon produk jika ada
+				if (otherFees.productDiscount && otherFees.productDiscount.length > 0) {
+					for (const discount of otherFees.productDiscount) {
+						// Cari produk yang sesuai dengan ID varian
+						const product = data.orderDetail.orderProducts.find((p) => p.productVariantId === discount.produkVariantId);
+
+						// Ambil data harga produk dari database berdasarkan varian produk
+						const productPriceDB = await prismaClient().productPrice.findFirst({
+							where: { productVariantId: product?.productVariantId },
+						});
+
+						// Tentukan harga yang digunakan berdasarkan kategori pelanggan
+						let discountProductPrice = 0;
+						if (productPriceDB) {
+							switch (customerCategory) {
+								case "CUSTOMER":
+								case "DROPSHIPPER":
+									discountProductPrice = Number(productPriceDB.normal) || 0;
+									break;
+								case "MEMBER":
+									discountProductPrice = Number(productPriceDB.member) || Number(productPriceDB.normal) || 0;
+									break;
+								case "RESELLER":
+									discountProductPrice = Number(productPriceDB.reseller) || Number(productPriceDB.normal) || 0;
+									break;
+								case "AGENT":
+									discountProductPrice = Number(productPriceDB.agent) || Number(productPriceDB.normal) || 0;
+									break;
+								default:
+									discountProductPrice = Number(productPriceDB.normal) || 0;
+							}
+						}
+
+						if (product) {
+							// Hitung jumlah diskon berdasarkan tipe
+							let discountAmount = 0;
+							if (discount.discountType === "percent") {
+								// Hitung diskon persentase dari harga produk
+								discountAmount =
+									(Number(discountProductPrice) * Number(product.productQty) * Number(discount.discountAmount)) / 100;
+							} else if (discount.discountType === "nominal") {
+								// Diskon nominal langsung
+								discountAmount = Number(discount.discountAmount) * Number(product.productQty);
+							}
+
+							// Kurangi total harga dengan diskon
+							totalPrice -= Number(discountAmount);
+						}
+					}
+				}
+
+				// Tambahkan biaya packaging jika ada
+				if (otherFees.packaging) {
+					totalPrice += Number(otherFees.packaging);
+				}
+
+				// Tambahkan biaya untuk order berdasarkan berat
+				if (otherFees.weight) {
+					const orderWeight = 1; // Berat order dalam kg
+					const pricePerKg = Number(otherFees.weight); // Harga per kg dari otherFees.weight
+					totalPrice += Number(orderWeight) * Number(pricePerKg);
+				}
+
+				// Tambahkan biaya pengiriman jika ada
+				if (otherFees.shippingCost) {
+					if (otherFees.shippingCost.cost) {
+						totalPrice += Number(otherFees.shippingCost.cost);
+					}
+				}
+
+				// Proses discount jika ada
+				if (otherFees.discount) {
+					// Jika discount dalam bentuk persentase
+					if (otherFees.discount.type === "percent" && otherFees.discount.value) {
+						const discountAmount = (Number(totalPrice) * Number(otherFees.discount.value)) / 100;
+						totalPrice -= Number(discountAmount);
+					}
+					// Jika discount dalam bentuk nominal
+					else if (otherFees.discount.type === "nominal" && otherFees.discount.value) {
+						totalPrice -= Number(otherFees.discount.value);
+					}
+				}
+			}
+
+			// Langkah 5: Buat order detail
+			const createdOrderDetail = await prismaClient().orderDetail.create({
+				data: {
+					orderId: createdOrder.id,
+					paymentMethodId: data.orderDetail.paymentMethod?.id,
+					code:
+						data.orderDetail.detail.code ||
+						`OID-${Date.now().toString().slice(-4)}-${Math.floor(1000 + Math.random() * 9000)}`,
+					otherFees: data.orderDetail.detail.otherFees,
+					originalFinalPrice: Number(totalPrice),
+					finalPrice: data.orderDetail.detail.originalFinalPrice
+						? Number(data.orderDetail.detail.originalFinalPrice)
+						: Number(totalPrice),
+					paymentStatus: data.orderDetail.paymentMethod?.status
+						? (data.orderDetail.paymentMethod?.status.toUpperCase() as PaymentStatus)
+						: undefined,
+					paymentDate: data.orderDetail.paymentMethod?.date
+						? new Date(data.orderDetail.paymentMethod?.date)
+						: undefined,
+					receiptNumber: data.orderDetail.detail.receiptNumber,
+				},
 			});
+
+			// Langkah 6: Buat order products
+			console.log(data.orderDetail.orderProducts);
+			for (const orderProduct of data.orderDetail.orderProducts) {
+				// Validasi productId
+				if (!orderProduct.productId) {
+					throw new Error("productId is required");
+				}
+
+				// Cek keberadaan dan stok varian produk
+				const productVariant = await prismaClient().productVariant.findUnique({
+					where: { id: orderProduct.productVariantId },
+				});
+
+				// Validasi keberadaan varian produk
+				if (!productVariant) {
+					throw new Error("product variant is not found");
+				}
+
+				// Validasi ketersediaan stok
+				if (productVariant.stock !== null && productVariant.stock < orderProduct.productQty) {
+					throw new Error(`Stok produk dengan ID ${orderProduct.productVariantId} tidak mencukupi`);
+				}
+
+				// Kurangi stok produk
+				await prismaClient().productVariant.update({
+					where: { id: orderProduct.productVariantId },
+					data: { stock: { decrement: orderProduct.productQty } },
+				});
+
+				// Buat entri order product
+				await prismaClient().orderProduct.create({
+					data: {
+						orderId: createdOrder.id,
+						orderDetailId: createdOrderDetail.id,
+						productId: orderProduct.productId,
+						productQty: orderProduct.productQty,
+						productVariantId: orderProduct.productVariantId,
+					},
+				});
+			}
+			console.log("ORDER PRODUCT");
+
+			// Langkah 7: Buat shipping services jika ada
+			if (data.orderDetail.shippingServices && data.orderDetail.shippingServices.length > 0) {
+				const shippingServicesPromises = data.orderDetail.shippingServices.map((shippingService) =>
+					prismaClient().shippingService.create({
+						data: {
+							orderId: createdOrder.id,
+							shippingName: shippingService.shippingName,
+							serviceName: shippingService.serviceName,
+							weight: shippingService.weight,
+							isCod: shippingService.isCod,
+							shippingCost: shippingService.shippingCost,
+							shippingCashback: shippingService.shippingCashback,
+							shippingCostNet: shippingService.shippingCostNet,
+							grandtotal: shippingService.grandtotal,
+							serviceFee: shippingService.serviceFee,
+							netIncome: shippingService.netIncome,
+							etd: shippingService.etd,
+							type: shippingService.type,
+						},
+					}),
+				);
+
+				await Promise.all(shippingServicesPromises);
+			}
+
+			const result = {
+				...createdOrder,
+				orderDetail: createdOrderDetail,
+			};
 
 			return ServiceResponse.success("Berhasil membuat data order", result, StatusCodes.CREATED);
 		} catch (error) {
@@ -814,7 +966,7 @@ class OrderService {
 		try {
 			let totalPrice = 0;
 
-			const existingOrder = await prismaClient.order.findUnique({
+			const existingOrder = await prismaClient().order.findUnique({
 				where: { id },
 				include: {
 					SalesChannel: true,
@@ -841,7 +993,7 @@ class OrderService {
 
 			// Cek customer pemesan jika ada perubahan
 			if (data?.order?.ordererCustomerId) {
-				const ordererCustomer = await prismaClient.customer.findUnique({
+				const ordererCustomer = await prismaClient().customer.findUnique({
 					where: { id: data.order.ordererCustomerId },
 				});
 				if (!ordererCustomer) {
@@ -851,7 +1003,7 @@ class OrderService {
 
 			// Cek customer tujuan pengiriman jika ada perubahan
 			if (data?.order?.deliveryTargetCustomerId) {
-				const deliveryTargetCustomer = await prismaClient.customer.findUnique({
+				const deliveryTargetCustomer = await prismaClient().customer.findUnique({
 					where: { id: data.order.deliveryTargetCustomerId },
 				});
 				if (!deliveryTargetCustomer) {
@@ -865,7 +1017,7 @@ class OrderService {
 
 			// Cek tempat pengiriman jika ada perubahan
 			if (data?.order?.deliveryPlaceId) {
-				const deliveryPlace = await prismaClient.deliveryPlace.findUnique({
+				const deliveryPlace = await prismaClient().deliveryPlace.findUnique({
 					where: { id: data.order.deliveryPlaceId },
 				});
 				if (!deliveryPlace) {
@@ -875,7 +1027,7 @@ class OrderService {
 
 			// Cek saluran penjualan jika ada perubahan
 			if (data?.order?.salesChannelId) {
-				const salesChannel = await prismaClient.salesChannel.findUnique({
+				const salesChannel = await prismaClient().salesChannel.findUnique({
 					where: { id: data.order.salesChannelId },
 				});
 				if (!salesChannel) {
@@ -885,7 +1037,7 @@ class OrderService {
 
 			// Cek metode pembayaran untuk detail order jika ada perubahan
 			if (data?.orderDetail?.paymentMethod?.id) {
-				const paymentMethod = await prismaClient.paymentMethod.findUnique({
+				const paymentMethod = await prismaClient().paymentMethod.findUnique({
 					where: { id: data.orderDetail.paymentMethod.id },
 				});
 				if (!paymentMethod) {
@@ -895,7 +1047,7 @@ class OrderService {
 
 			if (data?.orderDetail?.orderProducts && data.orderDetail.orderProducts.length > 0) {
 				// Ambil data customer untuk menentukan kategori harga
-				const customer = await prismaClient.customer.findUnique({
+				const customer = await prismaClient().customer.findUnique({
 					where: { id: data.order?.ordererCustomerId },
 					select: { category: true },
 				});
@@ -905,7 +1057,7 @@ class OrderService {
 					.map((product) => product.productId)
 					.filter((id): id is string => id !== undefined);
 
-				const products = await prismaClient.product.findMany({
+				const products = await prismaClient().product.findMany({
 					where: {
 						id: {
 							in: productIds,
@@ -1029,7 +1181,7 @@ class OrderService {
 					if (otherFees.installments) {
 						if (otherFees.installments.paymentMethodId && otherFees.installments.amount) {
 							// Cek apakah installment sudah ada untuk order ini
-							const existingInstallment = await prismaClient.installment.findFirst({
+							const existingInstallment = await prismaClient().installment.findFirst({
 								where: {
 									orderId: id,
 									paymentMethodId: otherFees.installments.paymentMethodId,
@@ -1038,7 +1190,7 @@ class OrderService {
 
 							if (existingInstallment) {
 								// Update installment yang sudah ada
-								await prismaClient.installment.update({
+								await prismaClient().installment.update({
 									where: { id: existingInstallment.id },
 									data: {
 										paymentMethodId: otherFees.installments.paymentMethodId,
@@ -1051,7 +1203,7 @@ class OrderService {
 								});
 							} else {
 								// Buat installment baru
-								await prismaClient.installment.create({
+								await prismaClient().installment.create({
 									data: {
 										orderId: id,
 										paymentMethodId: otherFees.installments.paymentMethodId,
@@ -1107,13 +1259,13 @@ class OrderService {
 							);
 
 							// Ambil data harga produk dari database berdasarkan varian produk
-							const productPriceDB = await prismaClient.productPrice.findFirst({
+							const productPriceDB = await prismaClient().productPrice.findFirst({
 								where: { productVariantId: product?.productVariantId },
 							});
 
 							// Tentukan harga yang digunakan berdasarkan kategori pelanggan
 							let discountProductPrice = 0;
-							const customer = await prismaClient.customer.findUnique({
+							const customer = await prismaClient().customer.findUnique({
 								where: { id: data.order.ordererCustomerId },
 								select: { category: true },
 							});
@@ -1162,167 +1314,167 @@ class OrderService {
 				}
 			}
 
-			const result = await prismaClient.$transaction(async (prisma) => {
-				const updatedOrder = await prisma.order.update({
-					where: { id },
-					data: {
-						ordererCustomerId: data?.order?.ordererCustomerId,
-						deliveryTargetCustomerId: data?.order?.deliveryTargetCustomerId,
-						deliveryPlaceId: data?.order?.deliveryPlaceId,
-						salesChannelId: data?.order?.salesChannelId,
-						orderDate: data?.order?.orderDate ? new Date(data.order.orderDate) : undefined,
-						note: data?.order?.note,
-					},
+			// Memisahkan transaksi menjadi beberapa bagian untuk mengurangi waktu eksekusi
+
+			// 1. Update order dasar
+			const updatedOrder = await prismaClient().order.update({
+				where: { id },
+				data: {
+					ordererCustomerId: data?.order?.ordererCustomerId,
+					deliveryTargetCustomerId: data?.order?.deliveryTargetCustomerId,
+					deliveryPlaceId: data?.order?.deliveryPlaceId,
+					salesChannelId: data?.order?.salesChannelId,
+					orderDate: data?.order?.orderDate ? new Date(data.order.orderDate) : undefined,
+					note: data?.order?.note,
+				},
+			});
+
+			// 2. Update order detail jika ada
+			if (data?.orderDetail) {
+				if (existingOrder.OrderDetail) {
+					// Update order detail yang sudah ada
+					await prismaClient().orderDetail.update({
+						where: { id: existingOrder.OrderDetail.id },
+						data: {
+							paymentMethodId: data.orderDetail.paymentMethod?.id,
+							code: data.orderDetail.detail?.code,
+							otherFees: data.orderDetail.detail?.otherFees ? Number(data.orderDetail.detail.otherFees) : undefined,
+							originalFinalPrice: Number(totalPrice),
+							finalPrice: data.orderDetail.detail.originalFinalPrice
+								? Number(data.orderDetail.detail.originalFinalPrice)
+								: Number(totalPrice),
+							paymentStatus: data.orderDetail.paymentMethod?.status
+								? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
+								: undefined,
+							paymentDate: data.orderDetail.paymentMethod?.date
+								? new Date(data.orderDetail.paymentMethod.date)
+								: undefined,
+							receiptNumber: data.orderDetail.detail?.receiptNumber,
+						},
+					});
+				} else {
+					// Buat order detail baru jika belum ada
+					await prismaClient().orderDetail.create({
+						data: {
+							orderId: id,
+							paymentMethodId: data.orderDetail.paymentMethod?.id,
+							code: data.orderDetail.detail?.code,
+							otherFees: data.orderDetail.detail?.otherFees ? Number(data.orderDetail.detail.otherFees) : undefined,
+							originalFinalPrice: Number(totalPrice),
+							finalPrice: data.orderDetail.detail.originalFinalPrice
+								? Number(data.orderDetail.detail.originalFinalPrice)
+								: Number(totalPrice),
+							paymentStatus: data.orderDetail.paymentMethod?.status
+								? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
+								: undefined,
+							paymentDate: data.orderDetail.paymentMethod?.date
+								? new Date(data.orderDetail.paymentMethod.date)
+								: undefined,
+							receiptNumber: data.orderDetail.detail?.receiptNumber,
+						},
+					});
+				}
+			}
+
+			// 3. Update order products jika ada
+			if (data?.orderDetail?.orderProducts && data.orderDetail.orderProducts.length > 0) {
+				// Hapus order products lama
+				await prismaClient().orderProduct.deleteMany({
+					where: { orderId: id },
 				});
 
-				// Update order detail jika ada
-				if (data?.orderDetail) {
-					if (existingOrder.OrderDetail) {
-						// Update order detail yang sudah ada
-						await prisma.orderDetail.update({
-							where: { id: existingOrder.OrderDetail.id },
-							data: {
-								paymentMethodId: data.orderDetail.paymentMethod?.id,
-								code: data.orderDetail.detail?.code,
-								otherFees: data.orderDetail.detail?.otherFees ? Number(data.orderDetail.detail.otherFees) : undefined,
-								originalFinalPrice: Number(totalPrice),
-								finalPrice: data.orderDetail.detail.originalFinalPrice
-									? Number(data.orderDetail.detail.originalFinalPrice)
-									: Number(totalPrice),
-								paymentStatus: data.orderDetail.paymentMethod?.status
-									? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
-									: undefined,
-								paymentDate: data.orderDetail.paymentMethod?.date
-									? new Date(data.orderDetail.paymentMethod.date)
-									: undefined,
-								receiptNumber: data.orderDetail.detail?.receiptNumber,
-							},
+				// Buat order products baru
+				await Promise.all(
+					data.orderDetail.orderProducts.map(async (orderProduct) => {
+						if (!orderProduct.productId) {
+							return ServiceResponse.failure("productId tidak ditemukan", null, StatusCodes.BAD_REQUEST);
+						}
+
+						if (!orderProduct.productQty) {
+							return ServiceResponse.failure("productQty tidak ditemukan", null, StatusCodes.BAD_REQUEST);
+						}
+
+						existingOrder.OrderDetail?.OrderProducts.map(async (db_product) => {
+							const stockDifference = Number(db_product.productQty) - (Number(orderProduct.productQty) ?? 0);
+							console.log(
+								`Selisih stok yang akan dikembalikan: ${stockDifference} unit untuk produk dengan ID: ${orderProduct.productVariantId}`,
+							);
+							await prismaClient().productVariant.update({
+								where: {
+									id: orderProduct.productVariantId,
+								},
+								data: {
+									stock: {
+										increment: stockDifference,
+									},
+								},
+							});
 						});
-					} else {
-						// Buat order detail baru jika belum ada
-						await prisma.orderDetail.create({
+
+						return prismaClient().orderProduct.create({
 							data: {
 								orderId: id,
-								paymentMethodId: data.orderDetail.paymentMethod?.id,
-								code: data.orderDetail.detail?.code,
-								otherFees: data.orderDetail.detail?.otherFees ? Number(data.orderDetail.detail.otherFees) : undefined,
-								originalFinalPrice: Number(totalPrice),
-								finalPrice: data.orderDetail.detail.originalFinalPrice
-									? Number(data.orderDetail.detail.originalFinalPrice)
-									: Number(totalPrice),
-								paymentStatus: data.orderDetail.paymentMethod?.status
-									? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
-									: undefined,
-								paymentDate: data.orderDetail.paymentMethod?.date
-									? new Date(data.orderDetail.paymentMethod.date)
-									: undefined,
-								receiptNumber: data.orderDetail.detail?.receiptNumber,
+								productId: orderProduct.productId,
+								productQty: orderProduct.productQty || 0,
+								orderDetailId: existingOrder.OrderDetail?.id ?? undefined,
+								productVariantId: orderProduct.productVariantId,
 							},
 						});
-					}
-				}
+					}),
+				);
+			}
 
-				// Update order products jika ada
-				if (data?.orderDetail?.orderProducts && data.orderDetail.orderProducts.length > 0) {
-					// Hapus order products lama
-
-					await prisma.orderProduct.deleteMany({
-						where: { orderId: id },
-					});
-
-					// Buat order products baru
-					await Promise.all(
-						data.orderDetail.orderProducts.map(async (orderProduct) => {
-							if (!orderProduct.productId) {
-								return ServiceResponse.failure("productId tidak ditemukan", null, StatusCodes.BAD_REQUEST);
-							}
-
-							if (!orderProduct.productQty) {
-								return ServiceResponse.failure("productQty tidak ditemukan", null, StatusCodes.BAD_REQUEST);
-							}
-
-							existingOrder.OrderDetail?.OrderProducts.map(async (db_product) => {
-								const stockDifference = Number(db_product.productQty) - (Number(orderProduct.productQty) ?? 0);
-								console.log(
-									`Selisih stok yang akan dikembalikan: ${stockDifference} unit untuk produk dengan ID: ${orderProduct.productVariantId}`,
-								);
-								await prisma.productVariant.update({
-									where: {
-										id: orderProduct.productVariantId,
-									},
-									data: {
-										stock: {
-											increment: stockDifference,
-										},
-									},
-								});
-							});
-
-							return prisma.orderProduct.create({
-								data: {
-									orderId: id,
-									productId: orderProduct.productId,
-									productQty: orderProduct.productQty || 0,
-									orderDetailId: existingOrder.OrderDetail?.id ?? undefined,
-									productVariantId: orderProduct.productVariantId,
-								},
-							});
-						}),
-					);
-				}
-
-				// Update shipping services jika ada
-				if (data?.orderDetail?.shippingServices && data.orderDetail.shippingServices.length > 0) {
-					// Hapus shipping services lama
-					await prisma.shippingService.deleteMany({
-						where: { orderId: id },
-					});
-
-					// Buat shipping services baru
-					await Promise.all(
-						data.orderDetail.shippingServices.map((shippingService) =>
-							prisma.shippingService.create({
-								data: {
-									orderId: id,
-									shippingName: shippingService.shippingName,
-									serviceName: shippingService.serviceName,
-									weight: shippingService.weight,
-									isCod: shippingService.isCod,
-									shippingCost: shippingService.shippingCost,
-									shippingCashback: shippingService.shippingCashback,
-									shippingCostNet: shippingService.shippingCostNet,
-									grandtotal: shippingService.grandtotal,
-									serviceFee: shippingService.serviceFee,
-									netIncome: shippingService.netIncome,
-									etd: shippingService.etd,
-									type: shippingService.type,
-								},
-							}),
-						),
-					);
-				}
-
-				// Ambil data order yang sudah diupdate beserta detailnya
-				return await prisma.order.findUnique({
-					where: { id },
-					include: {
-						SalesChannel: true,
-						DeliveryPlace: true,
-						OrdererCustomer: true,
-						DeliveryTargetCustomer: true,
-						OrderDetail: {
-							include: {
-								OrderProducts: {
-									include: {
-										Product: true,
-									},
-								},
-								PaymentMethod: true,
-							},
-						},
-						ShippingServices: true,
-					},
+			// 4. Update shipping services jika ada
+			if (data?.orderDetail?.shippingServices && data.orderDetail.shippingServices.length > 0) {
+				// Hapus shipping services lama
+				await prismaClient().shippingService.deleteMany({
+					where: { orderId: id },
 				});
+
+				// Buat shipping services baru
+				await Promise.all(
+					data.orderDetail.shippingServices.map((shippingService) =>
+						prismaClient().shippingService.create({
+							data: {
+								orderId: id,
+								shippingName: shippingService.shippingName,
+								serviceName: shippingService.serviceName,
+								weight: shippingService.weight,
+								isCod: shippingService.isCod,
+								shippingCost: shippingService.shippingCost,
+								shippingCashback: shippingService.shippingCashback,
+								shippingCostNet: shippingService.shippingCostNet,
+								grandtotal: shippingService.grandtotal,
+								serviceFee: shippingService.serviceFee,
+								netIncome: shippingService.netIncome,
+								etd: shippingService.etd,
+								type: shippingService.type,
+							},
+						}),
+					),
+				);
+			}
+
+			// 5. Ambil data order yang sudah diupdate beserta detailnya
+			const result = await prismaClient().order.findUnique({
+				where: { id },
+				include: {
+					SalesChannel: true,
+					DeliveryPlace: true,
+					OrdererCustomer: true,
+					DeliveryTargetCustomer: true,
+					OrderDetail: {
+						include: {
+							OrderProducts: {
+								include: {
+									Product: true,
+								},
+							},
+							PaymentMethod: true,
+						},
+					},
+					ShippingServices: true,
+				},
 			});
 
 			return ServiceResponse.success("Berhasil mengupdate data order", result, StatusCodes.OK);
@@ -1338,7 +1490,7 @@ class OrderService {
 
 	public delete = async (id: string) => {
 		try {
-			const existingOrder = await prismaClient.order.findUnique({
+			const existingOrder = await prismaClient().order.findUnique({
 				where: { id },
 				include: {
 					OrderDetail: {
@@ -1355,7 +1507,7 @@ class OrderService {
 			}
 
 			// Hapus data terkait terlebih dahulu menggunakan transaksi
-			const result = await prismaClient.$transaction(async (prisma) => {
+			const result = await prismaClient().$transaction(async (prisma) => {
 				// Hapus shipping services jika ada
 				if (existingOrder.ShippingServices.length > 0) {
 					await prisma.shippingService.deleteMany({
@@ -1411,7 +1563,7 @@ class OrderService {
 					};
 
 					// Ambil data order dengan relasi yang dibutuhkan
-					const orders = await prismaClient.order.findMany({
+					const orders = await prismaClient().order.findMany({
 						where: where as Prisma.OrderWhereInput,
 						include: {
 							SalesChannel: true,
@@ -1657,7 +1809,7 @@ class OrderService {
 					for (const item of data) {
 						console.log(item);
 						console.log(item.OrderDetail?.code);
-						const existingOrder = await prismaClient.orderDetail.findFirst({
+						const existingOrder = await prismaClient().orderDetail.findFirst({
 							where: {
 								code: item.OrderDetail?.code,
 							},
@@ -1670,7 +1822,7 @@ class OrderService {
 						}
 
 						// TODO: orderer customer
-						await prismaClient.$transaction(async (tx) => {
+						await prismaClient().$transaction(async (tx) => {
 							const ordererCustomer = await tx.customer.findFirst({
 								where: {
 									name: {
@@ -1935,7 +2087,7 @@ class OrderService {
 
 	public cancelOrders = async (id: string) => {
 		try {
-			const existingOrder = await prismaClient.order.findUnique({
+			const existingOrder = await prismaClient().order.findUnique({
 				where: { id },
 				include: {
 					OrderDetail: {
@@ -1951,7 +2103,7 @@ class OrderService {
 				return ServiceResponse.failure("Order detail tidak ditemukan", null, StatusCodes.NOT_FOUND);
 			}
 
-			const updatedOrder = await prismaClient.$transaction(async (prisma) => {
+			const updatedOrder = await prismaClient().$transaction(async (prisma) => {
 				// Update order status to CANCEL
 				const updatedOrderDetail = await prisma.orderDetail.update({
 					where: { id: existingOrder.OrderDetail?.id ?? "" },
@@ -2119,7 +2271,7 @@ class OrderService {
 				}
 			}
 
-			const result = await prismaClient.order.findMany({
+			const result = await prismaClient().order.findMany({
 				where: filter,
 				include: {
 					SalesChannel: true,

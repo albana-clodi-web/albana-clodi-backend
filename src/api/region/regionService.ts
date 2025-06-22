@@ -1,5 +1,5 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import { StatusCodes } from "http-status-codes";
 import type { Prisma } from "../../../generated/prisma";
 import type {
@@ -20,7 +20,7 @@ class RegionService {
 					},
 				};
 			}
-			const findAllProvinces = await prismaClient.province.findMany(query);
+			const findAllProvinces = await prismaClient().province.findMany(query);
 			const responseMap = findAllProvinces.map((data) => ({
 				...data,
 				id: data.id.toString(),
@@ -49,7 +49,7 @@ class RegionService {
 					},
 				};
 			}
-			const findAllCities = await prismaClient.city.findMany(query);
+			const findAllCities = await prismaClient().city.findMany(query);
 			const responseMap = findAllCities.map((data) => ({
 				...data,
 				id: data.id.toString(),
@@ -80,7 +80,7 @@ class RegionService {
 				};
 			}
 
-			const findAllDistricts = await prismaClient.district.findMany(query);
+			const findAllDistricts = await prismaClient().district.findMany(query);
 			const responseMap = findAllDistricts.map((data) => ({
 				...data,
 				id: data.id.toString(),
@@ -112,7 +112,7 @@ class RegionService {
 					},
 				};
 			}
-			const findAllDistricts = await prismaClient.village.findMany(query);
+			const findAllDistricts = await prismaClient().village.findMany(query);
 			const responseMap = findAllDistricts.map((data) => ({
 				...data,
 				id: data.id.toString(),

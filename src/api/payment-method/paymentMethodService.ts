@@ -1,12 +1,12 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import { StatusCodes } from "http-status-codes";
 import type { CreatePaymentMethodType, UpdatePaymentMethodType } from "./paymentMethodModel";
 
 class PaymentMethodService {
 	public getAllPayments = async () => {
 		try {
-			const payments = await prismaClient.paymentMethod.findMany();
+			const payments = await prismaClient().paymentMethod.findMany();
 
 			return ServiceResponse.success("Payment methods retrieved successfully", payments, StatusCodes.OK);
 		} catch (ex) {
@@ -21,7 +21,7 @@ class PaymentMethodService {
 
 	public getDetailPayment = async (paymentMethodId: string) => {
 		try {
-			const foundPayment = await prismaClient.paymentMethod.findUnique({ where: { id: paymentMethodId } });
+			const foundPayment = await prismaClient().paymentMethod.findUnique({ where: { id: paymentMethodId } });
 			if (!foundPayment) {
 				return ServiceResponse.failure("Payment method not found", null, StatusCodes.NOT_FOUND);
 			}
@@ -39,7 +39,7 @@ class PaymentMethodService {
 
 	public createPayment = async (req: CreatePaymentMethodType) => {
 		try {
-			const foundPaymentMethod = await prismaClient.paymentMethod.findFirst({
+			const foundPaymentMethod = await prismaClient().paymentMethod.findFirst({
 				where: {
 					OR: [
 						{
@@ -55,7 +55,7 @@ class PaymentMethodService {
 				return ServiceResponse.failure("Payment method already exist", null, StatusCodes.BAD_REQUEST);
 			}
 
-			await prismaClient.paymentMethod.create({ data: req });
+			await prismaClient().paymentMethod.create({ data: req });
 
 			return ServiceResponse.success("Payment method created successfully", null, StatusCodes.CREATED);
 		} catch (ex) {
@@ -70,12 +70,12 @@ class PaymentMethodService {
 
 	public updatePayment = async (paymentMethodId: string, req: UpdatePaymentMethodType) => {
 		try {
-			const foundPayment = await prismaClient.paymentMethod.findUnique({ where: { id: paymentMethodId } });
+			const foundPayment = await prismaClient().paymentMethod.findUnique({ where: { id: paymentMethodId } });
 			if (!foundPayment) {
 				return ServiceResponse.failure("Payment method not found", null, StatusCodes.NOT_FOUND);
 			}
 
-			await prismaClient.paymentMethod.update({
+			await prismaClient().paymentMethod.update({
 				where: { id: paymentMethodId },
 				data: req,
 			});
@@ -93,12 +93,12 @@ class PaymentMethodService {
 
 	public deletePayment = async (paymentMethodId: string) => {
 		try {
-			const foundPayment = await prismaClient.paymentMethod.findUnique({ where: { id: paymentMethodId } });
+			const foundPayment = await prismaClient().paymentMethod.findUnique({ where: { id: paymentMethodId } });
 			if (!foundPayment) {
 				return ServiceResponse.failure("Payment method not found", null, StatusCodes.NOT_FOUND);
 			}
 
-			await prismaClient.paymentMethod.delete({ where: { id: paymentMethodId } });
+			await prismaClient().paymentMethod.delete({ where: { id: paymentMethodId } });
 
 			return ServiceResponse.success("Payment method deleted successfully", null, StatusCodes.OK);
 		} catch (ex) {

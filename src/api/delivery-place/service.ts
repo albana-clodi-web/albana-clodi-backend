@@ -1,5 +1,5 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import { logger } from "@/server";
 import { StatusCodes } from "http-status-codes";
 import type { CreateDeliveryPlaceType, UpdateDeliveryPlaceType } from "./model";
@@ -7,7 +7,7 @@ import type { CreateDeliveryPlaceType, UpdateDeliveryPlaceType } from "./model";
 class DeliveryPlaceService {
 	public getAll = async () => {
 		try {
-			const result = await prismaClient.deliveryPlace.findMany();
+			const result = await prismaClient().deliveryPlace.findMany();
 			return ServiceResponse.success("Berhasil mengambil data asal pengiriman", result, StatusCodes.OK);
 		} catch (error) {
 			logger.error(error);
@@ -17,7 +17,7 @@ class DeliveryPlaceService {
 
 	public getOne = async (id: string) => {
 		try {
-			const result = await prismaClient.deliveryPlace.findUnique({
+			const result = await prismaClient().deliveryPlace.findUnique({
 				where: { id },
 			});
 
@@ -34,7 +34,7 @@ class DeliveryPlaceService {
 
 	public create = async (data: CreateDeliveryPlaceType) => {
 		try {
-			const result = await prismaClient.deliveryPlace.create({
+			const result = await prismaClient().deliveryPlace.create({
 				data,
 			});
 
@@ -47,7 +47,7 @@ class DeliveryPlaceService {
 
 	public update = async (id: string, data: Partial<UpdateDeliveryPlaceType>) => {
 		try {
-			const existingDeliveryPlace = await prismaClient.deliveryPlace.findUnique({
+			const existingDeliveryPlace = await prismaClient().deliveryPlace.findUnique({
 				where: { id },
 			});
 
@@ -55,7 +55,7 @@ class DeliveryPlaceService {
 				return ServiceResponse.failure("Data asal pengiriman tidak ditemukan", null, StatusCodes.NOT_FOUND);
 			}
 
-			const result = await prismaClient.deliveryPlace.update({
+			const result = await prismaClient().deliveryPlace.update({
 				where: { id },
 				data: {
 					...data,
@@ -72,7 +72,7 @@ class DeliveryPlaceService {
 
 	public delete = async (id: string) => {
 		try {
-			const existingDeliveryPlace = await prismaClient.deliveryPlace.findUnique({
+			const existingDeliveryPlace = await prismaClient().deliveryPlace.findUnique({
 				where: { id },
 			});
 
@@ -80,7 +80,7 @@ class DeliveryPlaceService {
 				return ServiceResponse.failure("Data asal pengiriman tidak ditemukan", null, StatusCodes.NOT_FOUND);
 			}
 
-			const result = await prismaClient.deliveryPlace.delete({
+			const result = await prismaClient().deliveryPlace.delete({
 				where: { id },
 			});
 

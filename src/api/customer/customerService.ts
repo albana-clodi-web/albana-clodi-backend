@@ -2,7 +2,7 @@ import { URLSearchParams } from "node:url";
 import { ServiceResponse } from "@/common/models/serviceResponse";
 import { exportData } from "@/common/utils/dataExporter";
 import { importData } from "@/common/utils/dataImporter";
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import { StatusCodes } from "http-status-codes";
 import type { Customer, CustomerCategories, CustomerStatuses, Prisma } from "../../../generated/prisma";
 import type {
@@ -112,13 +112,13 @@ export class CustomerService {
 			}
 
 			const [customers, total] = await Promise.all([
-				prismaClient.customer.findMany({
+				prismaClient().customer.findMany({
 					where: query.where,
 					orderBy: query.orderBy,
 					skip,
 					take: limit,
 				}),
-				prismaClient.customer.count(),
+				prismaClient().customer.count(),
 			]);
 
 			const response: PaginatedResponse<Customer> = {
@@ -142,7 +142,7 @@ export class CustomerService {
 
 	public getDetailCustomer = async (customerId: string) => {
 		try {
-			const foundCustomer = await prismaClient.customer.findFirst({ where: { id: customerId } });
+			const foundCustomer = await prismaClient().customer.findFirst({ where: { id: customerId } });
 			if (!foundCustomer) {
 				return ServiceResponse.failure("Customer not found", null, StatusCodes.NOT_FOUND);
 			}
@@ -160,7 +160,7 @@ export class CustomerService {
 
 	public createCustomer = async (req: CreateCustomerType) => {
 		try {
-			const foundCustomer = await prismaClient.customer.findFirst({
+			const foundCustomer = await prismaClient().customer.findFirst({
 				where: {
 					OR: [{ email: req.email }, { phoneNumber: req.phoneNumber }],
 				},
@@ -170,7 +170,7 @@ export class CustomerService {
 			}
 
 			const destinationId = await this.getDestinationIdFromAPI(req.village, req.district, req.city, req.postalCode);
-			const response = await prismaClient.customer.create({ data: { ...req, destinationId } });
+			const response = await prismaClient().customer.create({ data: { ...req, destinationId } });
 
 			return ServiceResponse.success("Customer created successfully", response, StatusCodes.CREATED);
 		} catch (ex) {
@@ -185,7 +185,7 @@ export class CustomerService {
 
 	public updateCustomer = async (customerId: string, req: UpdateCustomerType) => {
 		try {
-			const foundCustomer = await prismaClient.customer.findFirst({
+			const foundCustomer = await prismaClient().customer.findFirst({
 				where: {
 					id: customerId,
 				},
@@ -194,7 +194,7 @@ export class CustomerService {
 				return ServiceResponse.failure("Customer not found", null, StatusCodes.BAD_REQUEST);
 			}
 
-			const response = await prismaClient.customer.update({
+			const response = await prismaClient().customer.update({
 				where: { id: customerId },
 				data: req as Prisma.CustomerUpdateInput,
 			});
@@ -214,7 +214,7 @@ export class CustomerService {
 		try {
 			let responses: Customer[];
 			if (req && Array.isArray(req.customerIds) && req.customerIds?.length > 0) {
-				responses = await prismaClient.customer.findMany({
+				responses = await prismaClient().customer.findMany({
 					where: {
 						id: {
 							in: req.customerIds,
@@ -225,14 +225,14 @@ export class CustomerService {
 					return ServiceResponse.failure("Customers not found", null, StatusCodes.NOT_FOUND);
 				}
 
-				await prismaClient.customer.deleteMany({ where: { id: { in: req.customerIds } } });
+				await prismaClient().customer.deleteMany({ where: { id: { in: req.customerIds } } });
 			} else {
-				responses = (await prismaClient.customer.findUnique({ where: { id: customerId } })) as unknown as Customer[];
+				responses = (await prismaClient().customer.findUnique({ where: { id: customerId } })) as unknown as Customer[];
 				if (!responses) {
 					return ServiceResponse.failure("Customer not found", null, StatusCodes.NOT_FOUND);
 				}
 
-				await prismaClient.customer.delete({ where: { id: customerId } });
+				await prismaClient().customer.delete({ where: { id: customerId } });
 			}
 
 			return ServiceResponse.failure("Customer deleted successfully", responses, StatusCodes.OK);
@@ -317,7 +317,7 @@ export class CustomerService {
 			return exportData<Customer>(
 				exportParams,
 				async (where) => {
-					return prismaClient.customer.findMany({
+					return prismaClient().customer.findMany({
 						where: where as Prisma.CustomerWhereInput,
 						orderBy: { createdAt: "desc" },
 					});
@@ -367,7 +367,7 @@ export class CustomerService {
 					phoneNumber: row["No. Telpon"] ? String(row["No. Telpon"]) : null,
 				}),
 				async (data) => {
-					return prismaClient.customer.createMany({
+					return prismaClient().customer.createMany({
 						data,
 						skipDuplicates: true,
 					});

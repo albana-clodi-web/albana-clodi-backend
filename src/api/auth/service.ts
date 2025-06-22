@@ -1,5 +1,5 @@
 import { ServiceResponse } from "@/common/models/serviceResponse";
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import bcrypt from "bcrypt";
 import { StatusCodes } from "http-status-codes";
 import jwt from "jsonwebtoken";
@@ -15,7 +15,7 @@ class AuthService {
 
 	public async register(data: RegisterType["body"]) {
 		try {
-			const existingUser = await prismaClient.user.findUnique({
+			const existingUser = await prismaClient().user.findUnique({
 				where: { email: data.email },
 			});
 
@@ -25,7 +25,7 @@ class AuthService {
 
 			const hashedPassword = await bcrypt.hash(data.password, 10);
 
-			const user = await prismaClient.user.create({
+			const user = await prismaClient().user.create({
 				data: {
 					email: data.email,
 					password: hashedPassword,
@@ -55,7 +55,7 @@ class AuthService {
 
 	public async login(data: LoginType["body"]) {
 		try {
-			const user = await prismaClient.user.findUnique({
+			const user = await prismaClient().user.findUnique({
 				where: { email: data.email },
 			});
 
@@ -90,7 +90,7 @@ class AuthService {
 
 	public async getCurrentUser(userId: string) {
 		try {
-			const user = await prismaClient.user.findUnique({
+			const user = await prismaClient().user.findUnique({
 				where: { id: userId },
 			});
 
@@ -146,7 +146,7 @@ class AuthService {
 			// Hapus confirmPassword dari data yang akan diupdate
 			const { confirmPassword, ...dataToUpdate } = updatedUserData;
 
-			const user = await prismaClient.user.update({
+			const user = await prismaClient().user.update({
 				where: { id: userId },
 				data: dataToUpdate,
 				select: {

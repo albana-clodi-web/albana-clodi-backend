@@ -1,5 +1,5 @@
 import type { CreateProductType, UpdateProductType } from "@/api/product/productModel";
-import prismaClient from "@/config/prisma";
+import { prismaClient } from "@/config/prisma";
 import type { NextFunction, Request, Response } from "express";
 import { StatusCodes } from "http-status-codes";
 import { NIL } from "uuid";
@@ -15,7 +15,7 @@ export const validateStock = async (req: AuthRequest, res: Response, next: NextF
 
 		if (userRole === Roles.ADMIN) {
 			const ids = productVariants?.map((v) => v.id);
-			const foundVariants = await prismaClient.productVariant.findMany({
+			const foundVariants = await prismaClient().productVariant.findMany({
 				where: { id: { in: ids } },
 			});
 			const variantMap = new Map(foundVariants.map((v) => [v.id, v]));
