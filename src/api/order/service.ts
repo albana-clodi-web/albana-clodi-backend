@@ -903,10 +903,40 @@ class OrderService {
 				}
 
 				// Kurangi stok produk
-				await prismaClient().productVariant.update({
+				// Dapatkan stok saat ini dari database
+				const currentVariant = await prismaClient().productVariant.findUnique({
 					where: { id: orderProduct.productVariantId },
-					data: { stock: { decrement: orderProduct.productQty } },
+					select: { stock: true },
 				});
+
+				// Dapatkan data order product yang sudah ada sebelumnya
+				const existingOrderProduct = await prismaClient().orderProduct.findFirst({
+					where: {
+						orderId: createdOrder.id,
+						productVariantId: orderProduct.productVariantId,
+					},
+				});
+
+				// Hitung selisih qty antara order saat ini dengan yang sebelumnya
+				const previousQty = existingOrderProduct ? existingOrderProduct.productQty : 0;
+				const qtyDifference = orderProduct.productQty - previousQty;
+
+				// Update stok berdasarkan selisih qty
+				if (qtyDifference !== 0) {
+					if (qtyDifference > 0) {
+						// Jika qty baru lebih besar, kurangi stok dengan selisihnya
+						await prismaClient().productVariant.update({
+							where: { id: orderProduct.productVariantId },
+							data: { stock: { decrement: qtyDifference } },
+						});
+					} else {
+						// Jika qty baru lebih kecil, tambah stok dengan selisihnya (nilai absolut)
+						await prismaClient().productVariant.update({
+							where: { id: orderProduct.productVariantId },
+							data: { stock: { increment: Math.abs(qtyDifference) } },
+						});
+					}
+				}
 
 				// Buat entri order product
 				await prismaClient().orderProduct.create({
@@ -1052,7 +1082,8 @@ class OrderService {
 					select: { category: true },
 				});
 
-				// Ambil data produk untuk menghitung total harga
+				const customerCategory = customer?.category;
+
 				const productIds = data.orderDetail.orderProducts
 					.map((product) => product.productId)
 					.filter((id): id is string => id !== undefined);
@@ -1080,7 +1111,7 @@ class OrderService {
 					if (!product || !product.productVariants || product.productVariants.length === 0) continue;
 
 					// Cari variant yang sesuai dengan productVariantId jika ada
-					let variant = product.productVariants[0]; // Default ke variant pertama
+					let variant = product.productVariants[0];
 					if (orderProduct.productVariantId) {
 						const matchingVariant = product.productVariants.find((v) => v.id === orderProduct.productVariantId);
 						if (matchingVariant) {
@@ -1088,39 +1119,28 @@ class OrderService {
 						}
 					}
 
-					if (!variant?.stock || !orderProduct.productQty || variant.stock < orderProduct.productQty) {
-						return ServiceResponse.failure(
-							`Stok produk dengan ID ${orderProduct.productVariantId} tidak tersedia`,
-							null,
-							StatusCodes.BAD_REQUEST,
-						);
-					}
-
 					if (variant?.productPrices && variant.productPrices.length > 0) {
 						const priceData = variant.productPrices[0];
 
 						// Tentukan harga berdasarkan kategori customer
 						let productPrice = 0;
-						if (customer) {
-							switch (customer.category) {
-								case "CUSTOMER":
-								case "DROPSHIPPER":
-									productPrice = Number(priceData.normal) || 0;
-									break;
-								case "MEMBER":
-									productPrice = Number(priceData.member) || Number(priceData.normal) || 0;
-									break;
-								case "RESELLER":
-									productPrice = Number(priceData.reseller) || Number(priceData.normal) || 0;
-									break;
-								case "AGENT":
-									productPrice = Number(priceData.agent) || Number(priceData.normal) || 0;
-									break;
-								default:
-									productPrice = Number(priceData.normal) || 0;
-							}
-						} else {
-							productPrice = Number(priceData.normal) || 0;
+
+						switch (customerCategory) {
+							case "CUSTOMER":
+							case "DROPSHIPPER":
+								productPrice = Number(priceData.normal) || 0;
+								break;
+							case "MEMBER":
+								productPrice = Number(priceData.member) || Number(priceData.normal) || 0;
+								break;
+							case "RESELLER":
+								productPrice = Number(priceData.reseller) || Number(priceData.normal) || 0;
+								break;
+							case "AGENT":
+								productPrice = Number(priceData.agent) || Number(priceData.normal) || 0;
+								break;
+							default:
+								productPrice = Number(priceData.normal) || 0;
 						}
 
 						// Dapatkan quantity produk saat ini
@@ -1173,8 +1193,8 @@ class OrderService {
 						};
 					};
 
+					// Proses biaya tambahan
 					if (otherFees.packaging) {
-						// Add packaging cost if exists
 						totalPrice += Number(otherFees.packaging) || 0;
 					}
 
@@ -1219,90 +1239,74 @@ class OrderService {
 					}
 
 					if (otherFees.insurance) {
-						// Add insurance cost if exists
 						totalPrice += Number(otherFees.insurance) || 0;
 					}
 
 					if (otherFees.weight) {
-						// Add cost based on order weight
 						const orderWeight = 1; // Order weight in kg
-						const pricePerKg = Number(otherFees.weight) || 0; // Price per kg
+						const pricePerKg = Number(otherFees.weight) || 0;
 						totalPrice += orderWeight * pricePerKg;
 					}
 
-					if (otherFees.shippingCost) {
-						// Add shipping cost if exists
-						if (otherFees.shippingCost.cost) {
-							totalPrice += Number(otherFees.shippingCost.cost) || 0;
-						}
+					if (otherFees.shippingCost?.cost) {
+						totalPrice += Number(otherFees.shippingCost.cost) || 0;
 					}
 
+					// Proses diskon
 					if (otherFees.discount) {
-						// Proses discount jika ada
-						// Jika discount dalam bentuk persentase
 						if (otherFees.discount.type === "percent" && otherFees.discount.value) {
 							const discountAmount = (totalPrice * Number(otherFees.discount.value)) / 100;
 							totalPrice -= discountAmount;
-						}
-						// Jika discount dalam bentuk nominal
-						else if (otherFees.discount.type === "nominal" && otherFees.discount.value) {
+						} else if (otherFees.discount.type === "nominal" && otherFees.discount.value) {
 							totalPrice -= Number(otherFees.discount.value);
 						}
 					}
 
+					// Proses diskon produk
 					if (otherFees.productDiscount && otherFees.productDiscount.length > 0) {
-						// Proses diskon produk jika ada
 						for (const discount of otherFees.productDiscount) {
-							// Cari produk yang sesuai dengan ID varian
 							const product = data.orderDetail.orderProducts.find(
 								(p) => p.productVariantId === discount.produkVariantId,
 							);
 
-							// Ambil data harga produk dari database berdasarkan varian produk
-							const productPriceDB = await prismaClient().productPrice.findFirst({
-								where: { productVariantId: product?.productVariantId },
-							});
-
-							// Tentukan harga yang digunakan berdasarkan kategori pelanggan
-							let discountProductPrice = 0;
-							const customer = await prismaClient().customer.findUnique({
-								where: { id: data.order.ordererCustomerId },
-								select: { category: true },
-							});
-
-							if (productPriceDB) {
-								const customerCategory = customer?.category;
-								switch (customerCategory) {
-									case "CUSTOMER":
-									case "DROPSHIPPER":
-										discountProductPrice = Number(productPriceDB.normal) || 0;
-										break;
-									case "RESELLER":
-										discountProductPrice = Number(productPriceDB.reseller) || Number(productPriceDB.normal) || 0;
-										break;
-									case "MEMBER":
-										discountProductPrice = Number(productPriceDB.member) || Number(productPriceDB.normal) || 0;
-										break;
-									case "AGENT":
-										discountProductPrice = Number(productPriceDB.agent) || Number(productPriceDB.normal) || 0;
-										break;
-									default:
-										discountProductPrice = Number(productPriceDB.normal) || 0;
-								}
-							}
-
 							if (product) {
+								// Ambil data harga produk dari database berdasarkan varian produk
+								const productPriceDB = await prismaClient().productPrice.findFirst({
+									where: { productVariantId: product.productVariantId },
+								});
+
+								// Tentukan harga yang digunakan berdasarkan kategori pelanggan
+								let discountProductPrice = 0;
+
+								if (productPriceDB) {
+									switch (customerCategory) {
+										case "CUSTOMER":
+										case "DROPSHIPPER":
+											discountProductPrice = Number(productPriceDB.normal) || 0;
+											break;
+										case "RESELLER":
+											discountProductPrice = Number(productPriceDB.reseller) || Number(productPriceDB.normal) || 0;
+											break;
+										case "MEMBER":
+											discountProductPrice = Number(productPriceDB.member) || Number(productPriceDB.normal) || 0;
+											break;
+										case "AGENT":
+											discountProductPrice = Number(productPriceDB.agent) || Number(productPriceDB.normal) || 0;
+											break;
+										default:
+											discountProductPrice = Number(productPriceDB.normal) || 0;
+									}
+								}
+
 								// Hitung jumlah diskon berdasarkan tipe
 								let discountAmount = 0;
 								if (discount.discountType === "percent") {
-									// Hitung diskon persentase dari harga produk
 									discountAmount =
 										(Number(discountProductPrice) *
 											(Number(product.productQty) || 0) *
 											Number(discount.discountAmount)) /
 										100;
 								} else if (discount.discountType === "nominal") {
-									// Diskon nominal langsung
 									discountAmount = Number(discount.discountAmount) * (Number(product.productQty) || 0);
 								}
 
@@ -1331,46 +1335,33 @@ class OrderService {
 
 			// 2. Update order detail jika ada
 			if (data?.orderDetail) {
+				const orderDetailData = {
+					paymentMethodId: data.orderDetail.paymentMethod?.id,
+					code: data.orderDetail.detail?.code,
+					otherFees: data.orderDetail.detail?.otherFees ? data.orderDetail.detail.otherFees : undefined,
+					originalFinalPrice: Number(totalPrice),
+					finalPrice: data.orderDetail.detail?.originalFinalPrice
+						? Number(data.orderDetail.detail.originalFinalPrice)
+						: Number(totalPrice),
+					paymentStatus: data.orderDetail.paymentMethod?.status
+						? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
+						: undefined,
+					paymentDate: data.orderDetail.paymentMethod?.date ? new Date(data.orderDetail.paymentMethod.date) : undefined,
+					receiptNumber: data.orderDetail.detail?.receiptNumber,
+				};
+
 				if (existingOrder.OrderDetail) {
 					// Update order detail yang sudah ada
 					await prismaClient().orderDetail.update({
 						where: { id: existingOrder.OrderDetail.id },
-						data: {
-							paymentMethodId: data.orderDetail.paymentMethod?.id,
-							code: data.orderDetail.detail?.code,
-							otherFees: data.orderDetail.detail?.otherFees ? Number(data.orderDetail.detail.otherFees) : undefined,
-							originalFinalPrice: Number(totalPrice),
-							finalPrice: data.orderDetail.detail.originalFinalPrice
-								? Number(data.orderDetail.detail.originalFinalPrice)
-								: Number(totalPrice),
-							paymentStatus: data.orderDetail.paymentMethod?.status
-								? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
-								: undefined,
-							paymentDate: data.orderDetail.paymentMethod?.date
-								? new Date(data.orderDetail.paymentMethod.date)
-								: undefined,
-							receiptNumber: data.orderDetail.detail?.receiptNumber,
-						},
+						data: orderDetailData,
 					});
 				} else {
 					// Buat order detail baru jika belum ada
 					await prismaClient().orderDetail.create({
 						data: {
 							orderId: id,
-							paymentMethodId: data.orderDetail.paymentMethod?.id,
-							code: data.orderDetail.detail?.code,
-							otherFees: data.orderDetail.detail?.otherFees ? Number(data.orderDetail.detail.otherFees) : undefined,
-							originalFinalPrice: Number(totalPrice),
-							finalPrice: data.orderDetail.detail.originalFinalPrice
-								? Number(data.orderDetail.detail.originalFinalPrice)
-								: Number(totalPrice),
-							paymentStatus: data.orderDetail.paymentMethod?.status
-								? (data.orderDetail.paymentMethod.status.toUpperCase() as PaymentStatus)
-								: undefined,
-							paymentDate: data.orderDetail.paymentMethod?.date
-								? new Date(data.orderDetail.paymentMethod.date)
-								: undefined,
-							receiptNumber: data.orderDetail.detail?.receiptNumber,
+							...orderDetailData,
 						},
 					});
 				}
@@ -1384,44 +1375,107 @@ class OrderService {
 				});
 
 				// Buat order products baru
-				await Promise.all(
-					data.orderDetail.orderProducts.map(async (orderProduct) => {
-						if (!orderProduct.productId) {
-							return ServiceResponse.failure("productId tidak ditemukan", null, StatusCodes.BAD_REQUEST);
+				const orderProductPromises = data.orderDetail.orderProducts.map(async (orderProduct) => {
+					// Validasi data produk
+					if (!orderProduct.productId) {
+						throw new Error("productId tidak ditemukan");
+					}
+
+					if (!orderProduct.productQty) {
+						throw new Error("productQty tidak ditemukan");
+					}
+
+					// Cek keberadaan dan stok varian produk jika ada
+					if (orderProduct.productVariantId) {
+						const productVariant = await prismaClient().productVariant.findUnique({
+							where: { id: orderProduct.productVariantId },
+						});
+
+						if (!productVariant) {
+							throw new Error(`Varian produk dengan ID ${orderProduct.productVariantId} tidak ditemukan`);
 						}
 
-						if (!orderProduct.productQty) {
-							return ServiceResponse.failure("productQty tidak ditemukan", null, StatusCodes.BAD_REQUEST);
-						}
+						// Cari produk yang sama di order lama
+						const existingProduct = existingOrder.OrderDetail?.OrderProducts?.find(
+							(p) => p.productVariantId === orderProduct.productVariantId,
+						);
 
-						existingOrder.OrderDetail?.OrderProducts.map(async (db_product) => {
-							const stockDifference = Number(db_product.productQty) - (Number(orderProduct.productQty) ?? 0);
-							console.log(
-								`Selisih stok yang akan dikembalikan: ${stockDifference} unit untuk produk dengan ID: ${orderProduct.productVariantId}`,
-							);
-							await prismaClient().productVariant.update({
-								where: {
-									id: orderProduct.productVariantId,
-								},
-								data: {
-									stock: {
-										increment: stockDifference,
-									},
-								},
+						// Hitung selisih qty antara order saat ini dengan yang sebelumnya
+						const previousQty = existingProduct ? existingProduct.productQty : 0;
+						const qtyDifference = orderProduct.productQty - previousQty;
+
+						// Validasi stok produk berdasarkan selisih qty
+						if (productVariant.stock !== null && qtyDifference > 0 && productVariant.stock < qtyDifference) {
+							// Dapatkan informasi produk untuk pesan error yang lebih informatif
+							const product = await prismaClient().product.findUnique({
+								where: { id: orderProduct.productId },
+								select: { name: true },
 							});
-						});
 
-						return prismaClient().orderProduct.create({
-							data: {
-								orderId: id,
-								productId: orderProduct.productId,
-								productQty: orderProduct.productQty || 0,
-								orderDetailId: existingOrder.OrderDetail?.id ?? undefined,
-								productVariantId: orderProduct.productVariantId,
-							},
-						});
-					}),
-				);
+							throw new Error(
+								`Stok produk ${product?.name || ""} dengan SKU ${productVariant.sku || "tidak diketahui"} tidak mencukupi. Stok tersedia: ${productVariant.stock}, dibutuhkan tambahan: ${qtyDifference}`,
+							);
+						}
+
+						// Update stok berdasarkan selisih qty
+						if (qtyDifference !== 0) {
+							console.log("UPDATE STOCK");
+							console.log({ qtyDifference });
+							if (qtyDifference > 0) {
+								console.log(`Mengurangi stok untuk variant ${orderProduct.productVariantId} sebanyak ${qtyDifference}`);
+								// Dapatkan stok saat ini dari database
+								const currentVariant = await prismaClient().productVariant.findUnique({
+									where: { id: orderProduct.productVariantId },
+									select: { stock: true },
+								});
+								console.log({ currentVariant });
+
+								// Hitung stok baru dengan mengurangi langsung
+								const newStock = (currentVariant?.stock || 0) - qtyDifference;
+								console.log({ newStock });
+
+								// Update stok dengan nilai absolut
+								await prismaClient().productVariant.update({
+									where: { id: orderProduct.productVariantId },
+									data: { stock: newStock },
+								});
+							} else {
+								console.log(
+									`Menambah stok untuk variant ${orderProduct.productVariantId} sebanyak ${Math.abs(qtyDifference)}`,
+								);
+								// Dapatkan stok saat ini dari database
+								const currentVariant = await prismaClient().productVariant.findUnique({
+									where: { id: orderProduct.productVariantId },
+									select: { stock: true },
+								});
+
+								console.log({ currentVariant });
+
+								// Hitung stok baru dengan menambahkan langsung
+								const newStock = (currentVariant?.stock || 0) + Math.abs(qtyDifference);
+								console.log({ newStock });
+								// Update stok dengan nilai absolut
+								await prismaClient().productVariant.update({
+									where: { id: orderProduct.productVariantId },
+									data: { stock: newStock },
+								});
+							}
+						}
+					}
+
+					// Buat order product baru
+					return prismaClient().orderProduct.create({
+						data: {
+							orderId: id,
+							productId: orderProduct.productId,
+							productQty: orderProduct.productQty,
+							orderDetailId: existingOrder.OrderDetail?.id,
+							productVariantId: orderProduct.productVariantId,
+						},
+					});
+				});
+
+				await Promise.all(orderProductPromises);
 			}
 
 			// 4. Update shipping services jika ada
