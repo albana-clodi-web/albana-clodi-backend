@@ -1876,249 +1876,254 @@ class OrderService {
 						}
 
 						// TODO: orderer customer
-						await prismaClient().$transaction(async (tx) => {
-							const ordererCustomer = await tx.customer.findFirst({
-								where: {
-									name: {
-										equals: item.OrdererCustomer as string,
-										mode: "insensitive",
-									},
+						// Cari atau buat orderer customer
+						const ordererCustomer = await prismaClient().customer.findFirst({
+							where: {
+								name: {
+									equals: item.OrdererCustomer as string,
+									mode: "insensitive",
+								},
+							},
+						});
+
+						let ordererCustomerId = ordererCustomer?.id;
+						if (!ordererCustomer) {
+							const newOrdererCustomer = await prismaClient().customer.create({
+								data: {
+									id: uuidv4(),
+									name: item.OrdererCustomer as string,
+									category: "CUSTOMER" as CustomerCategories,
+									status: "ACTIVE",
+									address: "",
+									province: "",
+									district: "",
+									village: "",
+									postalCode: "",
+									phoneNumber: "",
+									email: "",
 								},
 							});
+							ordererCustomerId = newOrdererCustomer.id;
+						}
 
-							let newOrdererCustomer = null;
-							if (!ordererCustomer) {
-								newOrdererCustomer = await tx.customer.create({
-									data: {
-										id: uuidv4(),
-										name: item.OrdererCustomer as string,
-										category: "CUSTOMER" as CustomerCategories,
-										status: "ACTIVE",
-										address: "",
-										province: "",
-										district: "",
-										village: "",
-										postalCode: "",
-										phoneNumber: "",
-										email: "",
-									},
-								});
-							}
+						// Cari atau buat delivery target customer
+						const deliveryTargetCustomer = await prismaClient().customer.findFirst({
+							where: {
+								name: {
+									equals: item.DeliveryTargetCustomer as string,
+									mode: "insensitive",
+								},
+							},
+						});
 
-							const deliveryOrdererCustomer = await tx.customer.findFirst({
-								where: {
-									name: {
-										equals: item.DeliveryTargetCustomer as string,
-										mode: "insensitive",
-									},
+						let deliveryTargetCustomerId = deliveryTargetCustomer?.id;
+						if (!deliveryTargetCustomer) {
+							const newDeliveryTargetCustomer = await prismaClient().customer.create({
+								data: {
+									id: uuidv4(),
+									name: item.DeliveryTargetCustomer as string,
+									category: "CUSTOMER" as CustomerCategories,
+									status: "ACTIVE",
+									address: "",
+									province: "",
+									district: "",
+									village: "",
+									postalCode: "",
+									phoneNumber: "",
+									email: "",
 								},
 							});
+							deliveryTargetCustomerId = newDeliveryTargetCustomer.id;
+						}
 
-							let newDeliveryOrdererCustomer = null;
-							if (!deliveryOrdererCustomer) {
-								newDeliveryOrdererCustomer = await tx.customer.create({
-									data: {
-										id: uuidv4(),
-										name: item.DeliveryTargetCustomer as string,
-										category: "CUSTOMER" as CustomerCategories,
-										status: "ACTIVE",
-										address: "",
-										province: "",
-										district: "",
-										village: "",
-										postalCode: "",
-										phoneNumber: "",
-										email: "",
-									},
-								});
-							}
+						// Cari atau buat delivery place
+						const deliveryPlace = await prismaClient().deliveryPlace.findFirst({
+							where: {
+								name: {
+									equals: item.DeliveryPlace as string,
+									mode: "insensitive",
+								},
+							},
+						});
 
-							const deliveryPlace = await tx.deliveryPlace.findFirst({
-								where: {
-									name: {
-										equals: item.DeliveryPlace as string,
-										mode: "insensitive",
-									},
+						let deliveryPlaceId = deliveryPlace?.id;
+						if (!deliveryPlace) {
+							const newDeliveryPlace = await prismaClient().deliveryPlace.create({
+								data: {
+									id: uuidv4(),
+									name: item.OrdererCustomer as string,
+									address: "",
+									subdistrict: "",
+									phoneNumber: "",
+									email: "",
 								},
 							});
+							deliveryPlaceId = newDeliveryPlace.id;
+						}
 
-							let newDeliveryPlace = null;
-							if (!deliveryPlace) {
-								newDeliveryPlace = await tx.deliveryPlace.create({
-									data: {
-										id: uuidv4(),
-										name: item.OrdererCustomer as string,
-										address: "",
-										subdistrict: "",
-										phoneNumber: "",
-										email: "",
-									},
-								});
-							}
+						// Cari atau buat sales channel
+						const salesChannel = await prismaClient().salesChannel.findFirst({
+							where: {
+								name: {
+									equals: item.SalesChannel as string,
+									mode: "insensitive",
+								},
+							},
+						});
 
-							const salesChannel = await tx.salesChannel.findFirst({
-								where: {
-									name: {
-										equals: item.SalesChannel as string,
-										mode: "insensitive",
-									},
+						let salesChannelId = salesChannel?.id;
+						if (!salesChannel) {
+							const newSalesChannel = await prismaClient().salesChannel.create({
+								data: {
+									id: uuidv4(),
+									name: item.SalesChannel as string,
+									isActive: true,
 								},
 							});
+							salesChannelId = newSalesChannel.id;
+						}
 
-							let newSalesChannel = null;
-							if (!salesChannel) {
-								newSalesChannel = await tx.salesChannel.create({
-									data: {
-										id: uuidv4(),
-										name: item.SalesChannel as string,
-										isActive: true,
-									},
-								});
-							}
+						// Cari atau buat payment method
+						const paymentMethod = await prismaClient().paymentMethod.findFirst({
+							where: {
+								name: {
+									equals: item.OrderDetail?.PaymentMethod as string,
+									mode: "insensitive",
+								},
+							},
+						});
 
-							const paymentMethod = await tx.paymentMethod.findFirst({
-								where: {
-									name: {
-										equals: item.OrderDetail?.PaymentMethod as string,
-										mode: "insensitive",
-									},
+						let paymentMethodId = paymentMethod?.id;
+						if (!paymentMethod) {
+							const newPaymentMethod = await prismaClient().paymentMethod.create({
+								data: {
+									id: uuidv4(),
+									name: null,
+									bankName: item.OrderDetail?.PaymentMethod as string,
+									bankBranch: null,
+									accountNumber: null,
 								},
 							});
+							paymentMethodId = newPaymentMethod.id;
+						}
 
-							let newPaymentMethod = null;
-							if (!paymentMethod) {
-								newPaymentMethod = await tx.paymentMethod.create({
-									data: {
-										id: uuidv4(),
-										name: null,
-										bankName: item.OrderDetail?.PaymentMethod as string,
-										bankBranch: null,
-										accountNumber: null,
-									},
-								});
-							}
-
-							let newProduct = null;
-							const products = await Promise.all(
-								(item.OrderDetail?.OrderProducts as { productName: string; skus: string[]; quantity: number }[])?.map(
-									async (product: { productName: string; skus: string[]; quantity: number }) => {
-										const foundProduct = await tx.product.findFirst({
-											where: {
-												AND: [
-													{
-														name: {
-															equals: product.productName,
-															mode: "insensitive",
-														},
+						// Cari atau buat produk dan variannya
+						const products = await Promise.all(
+							(item.OrderDetail?.OrderProducts as { productName: string; skus: string[]; quantity: number }[])?.map(
+								async (product: { productName: string; skus: string[]; quantity: number }) => {
+									const foundProduct = await prismaClient().product.findFirst({
+										where: {
+											AND: [
+												{
+													name: {
+														equals: product.productName,
+														mode: "insensitive",
 													},
-													{
-														productVariants: {
-															some: {
-																sku: {
-																	in: product.skus,
-																},
+												},
+												{
+													productVariants: {
+														some: {
+															sku: {
+																in: product.skus,
 															},
 														},
 													},
-												],
-											},
-											include: {
-												productVariants: {
-													where: {
-														sku: {
-															in: product.skus,
-														},
+												},
+											],
+										},
+										include: {
+											productVariants: {
+												where: {
+													sku: {
+														in: product.skus,
 													},
+												},
+											},
+										},
+									});
+
+									let productId = foundProduct?.id;
+									if (!foundProduct) {
+										const newProduct = await prismaClient().product.create({
+											data: {
+												id: uuidv4(),
+												name: product.productName,
+												type: "BARANG_STOK_SENDIRI",
+												productVariants: {
+													create: product.skus.map((sku: string) => ({
+														id: uuidv4(),
+														sku: sku,
+														stock: 0,
+													})),
 												},
 											},
 										});
+										productId = newProduct.id;
+									}
 
-										if (!foundProduct) {
-											newProduct = await tx.product.create({
-												data: {
-													id: uuidv4(),
-													name: product.productName,
-													type: "BARANG_STOK_SENDIRI",
-													productVariants: {
-														create: product.skus.map((sku: string) => ({
-															id: uuidv4(),
-															sku: sku,
-															stock: 0,
-														})),
+									return {
+										productId: productId,
+										productQty: product.quantity,
+									};
+								},
+							),
+						);
+
+						// Buat order dan order detail
+						const generated_order_id = uuidv4();
+						const generated_order_detail_id = uuidv4();
+
+						await prismaClient().order.create({
+							data: {
+								id: generated_order_id,
+								ordererCustomerId: ordererCustomerId,
+								deliveryTargetCustomerId: deliveryTargetCustomerId,
+								deliveryPlaceId: deliveryPlaceId,
+								salesChannelId: salesChannelId,
+								orderDate: item.orderDate
+									? item.orderDate instanceof Date
+										? item.orderDate
+										: typeof item.orderDate === "string" && item.orderDate.includes("/")
+											? new Date(
+													`20${item.orderDate.split("/")[2]}-${item.orderDate.split("/")[1]}-${item.orderDate.split("/")[0]}`,
+												)
+											: new Date(item.orderDate as string)
+									: new Date(),
+								note: (item.note as string) || "",
+								OrderDetail: {
+									create: {
+										id: generated_order_detail_id,
+										code: item.OrderDetail?.code as string,
+										paymentStatus: (item.OrderDetail?.paymentStatus as PaymentStatus) || "PENDING",
+										paymentDate:
+											item.OrderDetail?.paymentDate instanceof Date
+												? item.OrderDetail?.paymentDate
+												: typeof item.OrderDetail?.paymentDate === "string" &&
+														item.OrderDetail?.paymentDate.includes("/")
+													? new Date(
+															`20${item.OrderDetail?.paymentDate.split("/")[2]}-${item.OrderDetail?.paymentDate.split("/")[1]}-${item.OrderDetail?.paymentDate.split("/")[0]}`,
+														)
+													: item.OrderDetail?.paymentDate
+														? new Date(item.OrderDetail?.paymentDate as string)
+														: null,
+										paymentMethodId: paymentMethodId,
+										finalPrice: (item.OrderDetail?.finalPrice as number) || 0,
+										receiptNumber: (item.OrderDetail?.receiptNumber as string) || null,
+										otherFees: item.OrderDetail?.otherFees as Prisma.InputJsonValue | undefined,
+										OrderProducts: {
+											create: products.map((product) => ({
+												orderId: generated_order_id,
+												Product: {
+													connect: {
+														id: product.productId,
 													},
 												},
-											});
-										}
-
-										return {
-											productId: foundProduct?.id,
-											productQty: product.quantity,
-										};
-									},
-								),
-							);
-
-							const orderProducts = products.map((product: { productId: string | undefined; productQty: number }) => ({
-								id: uuidv4(),
-								productId: product.productId as string,
-								productQty: product.productQty,
-							}));
-
-							const generated_order_id = uuidv4();
-							const generated_order_detail_id = uuidv4();
-
-							await tx.order.create({
-								data: {
-									id: generated_order_id,
-									ordererCustomerId: ordererCustomer?.id || newOrdererCustomer?.id,
-									deliveryTargetCustomerId: deliveryOrdererCustomer?.id || newDeliveryOrdererCustomer?.id,
-									deliveryPlaceId: deliveryPlace?.id || newDeliveryPlace?.id,
-									salesChannelId: salesChannel?.id || newSalesChannel?.id,
-									orderDate: item.orderDate
-										? item.orderDate instanceof Date
-											? item.orderDate
-											: typeof item.orderDate === "string" && item.orderDate.includes("/")
-												? new Date(
-														`20${item.orderDate.split("/")[2]}-${item.orderDate.split("/")[1]}-${item.orderDate.split("/")[0]}`,
-													)
-												: new Date(item.orderDate as string)
-										: new Date(),
-									note: (item.note as string) || "",
-									OrderDetail: {
-										create: {
-											id: generated_order_detail_id,
-											code: item.OrderDetail?.code as string,
-											paymentStatus: (item.OrderDetail?.paymentStatus as PaymentStatus) || "PENDING",
-											paymentDate:
-												item.OrderDetail?.paymentDate instanceof Date
-													? item.OrderDetail?.paymentDate
-													: typeof item.OrderDetail?.paymentDate === "string" &&
-															item.OrderDetail?.paymentDate.includes("/")
-														? new Date(
-																`20${item.OrderDetail?.paymentDate.split("/")[2]}-${item.OrderDetail?.paymentDate.split("/")[1]}-${item.OrderDetail?.paymentDate.split("/")[0]}`,
-															)
-														: item.OrderDetail?.paymentDate
-															? new Date(item.OrderDetail?.paymentDate as string)
-															: null,
-											paymentMethodId: paymentMethod?.id || newPaymentMethod?.id,
-											finalPrice: (item.OrderDetail?.finalPrice as number) || 0,
-											receiptNumber: (item.OrderDetail?.receiptNumber as string) || null,
-											otherFees: item.OrderDetail?.otherFees as Prisma.InputJsonValue | undefined,
-											OrderProducts: {
-												create: orderProducts.map((product) => ({
-													orderId: generated_order_id,
-													Product: {
-														connect: {
-															id: product.productId,
-														},
-													},
-													productQty: product.productQty,
-												})),
-											},
+												productQty: product.productQty,
+											})),
 										},
 									},
 								},
-							});
+							},
 						});
 					}
 				},
