@@ -14,7 +14,7 @@ class ShippingCostService {
 			const API_KEY = process.env.RAJAONGKIR_SHIPPING_DELIVERY_API_KEY;
 			const BASE_URL = process.env.RAJAONGKIR_BASE_URL;
 			
-			const const convertGramToKg = (weightInGrams: number | string): string => {
+			const convertGramToKg = (weightInGrams: number | string): string => {
 			  // Pastikan input adalah angka
 			  const weight = typeof weightInGrams === 'string'
 			    ? parseFloat(weightInGrams)
