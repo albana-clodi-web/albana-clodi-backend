@@ -13,11 +13,24 @@ class ShippingCostService {
 		try {
 			const API_KEY = process.env.RAJAONGKIR_SHIPPING_DELIVERY_API_KEY;
 			const BASE_URL = process.env.RAJAONGKIR_BASE_URL;
+			
+			const const convertGramToKg = (weightInGrams: number | string): string => {
+			  // Pastikan input adalah angka
+			  const weight = typeof weightInGrams === 'string'
+			    ? parseFloat(weightInGrams)
+			    : weightInGrams;
+			  
+			  // Konversi gram ke kilogram (1 kg = 1000 gram)
+			  const weightInKg = weight / 1000;
+			  
+			  // Kembalikan sebagai string dengan format angka desimal menggunakan titik
+			  return weightInKg.toFixed(2); // Menggunakan toFixed(2) untuk memastikan hasilnya selalu float dengan 2 angka desimal
+			};
 
 			const queryParams = new URLSearchParams({
 				shipper_destination_id: shipper_destination_id.toString(),
 				receiver_destination_id: receiver_destination_id.toString(),
-				weight: weight.toString(),
+				weight: convertGramToKg(weight),
 				item_value: item_value.toString(),
 				cod: cod || "no",
 			});
