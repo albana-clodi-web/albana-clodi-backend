@@ -107,7 +107,7 @@ export class CustomerService {
 				};
 			} else {
 				query.orderBy = {
-					createdAt: "asc",
+					createdAt: "desc",
 				};
 			}
 
