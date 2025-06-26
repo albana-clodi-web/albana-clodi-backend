@@ -148,3 +148,4 @@ pnpm-lock.yaml
 
 # Test files for API docs
 src/api-docs/__test__
+.idea
