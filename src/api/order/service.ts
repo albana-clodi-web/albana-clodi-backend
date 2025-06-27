@@ -879,6 +879,8 @@ class OrderService {
 				},
 			});
 
+			console.log({ createdOrderDetail });
+
 			// Langkah 6: Buat order products
 			console.log(data.orderDetail.orderProducts);
 			for (const orderProduct of data.orderDetail.orderProducts) {

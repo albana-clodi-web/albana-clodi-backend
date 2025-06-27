@@ -271,7 +271,8 @@ class ReportService {
 						email: order.DeliveryTargetCustomer?.email || "Tidak ada email",
 					},
 					dropship_info: (() => {
-						const isDropshipper = order.OrdererCustomer?.category === ("DROPSHIPPER" as CustomerCategories);
+						const dropshipCategories: CustomerCategories[] = ["DROPSHIPPER", "AGENT", "RESELLER"];
+						const isDropshipper = dropshipCategories.includes(order.OrdererCustomer?.category as CustomerCategories);
 						return {
 							sender: {
 								name: isDropshipper ? order.OrdererCustomer?.name || "Tidak ada nama" : "",
