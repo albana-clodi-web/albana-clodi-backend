@@ -598,60 +598,63 @@ class ReportService {
 			}
 
 			console.log(where);
-			const [orders, ordersAmount, count, expenses] = await Promise.all([
-				prismaClient().order.findMany({
-					where: where as Prisma.OrderWhereInput,
-					orderBy: {
-						createdAt: "desc" as const,
-					},
-					include: {
-						OrderDetail: {
-							include: {
-								OrderProducts: {
-									include: {
-										Product: {
-											include: {
-												productVariants: {
-													include: {
-														productPrices: true,
-													},
+
+			// Mengambil data order
+			const orders = await prismaClient().order.findMany({
+				where: where as Prisma.OrderWhereInput,
+				orderBy: {
+					createdAt: "desc" as const,
+				},
+				include: {
+					OrderDetail: {
+						include: {
+							OrderProducts: {
+								include: {
+									Product: {
+										include: {
+											productVariants: {
+												include: {
+													productPrices: true,
 												},
 											},
 										},
 									},
 								},
-								PaymentMethod: true,
 							},
+							PaymentMethod: true,
 						},
-						SalesChannel: true,
-						DeliveryPlace: true,
-						OrdererCustomer: true,
-						DeliveryTargetCustomer: true,
-						ShippingServices: true,
 					},
-				}),
-				prismaClient().$queryRaw`
-					SELECT SUM(od.final_price) as total_amount
-					FROM orders o
-					JOIN order_details od ON o.id = od.order_id
-					WHERE ${Prisma.sql([
-						where.createdAt?.gte ? `o.created_at >= '${where.createdAt.gte.toISOString()}'` : "TRUE",
-					])}
-					AND ${Prisma.sql([where.createdAt?.lte ? `o.created_at <= '${where.createdAt.lte.toISOString()}'` : "TRUE"])}
-				` as Promise<[{ total_amount: number | null }]>,
-				prismaClient().order.count({
-					where: where as Prisma.OrderWhereInput,
-				}),
-				prismaClient().expense.aggregate({
-					_sum: {
-						totalPrice: true,
-					},
-					where: where as Prisma.ExpenseWhereInput,
-					_count: {
-						id: true,
-					},
-				}),
-			]);
+					SalesChannel: true,
+					DeliveryPlace: true,
+					OrdererCustomer: true,
+					DeliveryTargetCustomer: true,
+					ShippingServices: true,
+				},
+			});
+
+			// Mengambil jumlah total pesanan
+			const ordersAmount = (await prismaClient().$queryRaw`
+				SELECT SUM(od.final_price) as total_amount
+				FROM orders o
+				JOIN order_details od ON o.id = od.order_id
+				WHERE ${Prisma.sql([where.createdAt?.gte ? `o.created_at >= '${where.createdAt.gte.toISOString()}'` : "TRUE"])}
+				AND ${Prisma.sql([where.createdAt?.lte ? `o.created_at <= '${where.createdAt.lte.toISOString()}'` : "TRUE"])}
+			`) as [{ total_amount: number | null }];
+
+			const count = await prismaClient().order.count({
+				where: where as Prisma.OrderWhereInput,
+			});
+
+			// Mengambil data pengeluaran
+			const expenses = await prismaClient().expense.aggregate({
+				_sum: {
+					totalPrice: true,
+				},
+				where: where as Prisma.ExpenseWhereInput,
+				_count: {
+					id: true,
+				},
+			});
 
 			// Menghitung keuntungan (harga jual - harga beli)
 			let keuntungan = 0;
