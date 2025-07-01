@@ -326,7 +326,7 @@ class ReportService {
 			}
 
 			// Menghitung laba bersih (penjualan bersih dikurangi expenses)
-			labaBersih = penjualanBersih - totalExpenses;
+			labaBersih = labaKotor - totalExpenses;
 
 			// Mendapatkan informasi filter yang digunakan
 			let filterInfo = "Semua data";
