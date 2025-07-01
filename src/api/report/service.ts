@@ -3,6 +3,7 @@ import { prismaClient } from "@/config/prisma";
 import { logger } from "@/server";
 import { StatusCodes } from "http-status-codes";
 import { type PaymentStatus, Prisma } from "../../../generated/prisma";
+import { ProductVariant } from "../../../generated/prisma/index";
 
 interface IReportParams {
 	startDate?: string;
@@ -228,7 +229,11 @@ class ReportService {
 									include: {
 										Product: {
 											include: {
-												productVariants: true,
+												productVariants: {
+													include: {
+														productPrices: true,
+													},
+												},
 											},
 										},
 									},
@@ -275,6 +280,14 @@ class ReportService {
 			const totalExpenses = expenses._sum.totalPrice || 0;
 			const totalExpensesCount = expenses._count.id || 0;
 
+			// Perbaikan type error pada akses properti productDiscount dan pd
+			// Definisikan tipe untuk productDiscount item
+			type ProductDiscountItem = {
+				discountType: string;
+				discountAmount: number | string;
+				produkVariantId: string | number;
+			};
+
 			for (const order of orders) {
 				if (order.OrderDetail?.paymentStatus === ("SETTLEMENT" as PaymentStatus)) {
 					// Menghitung total item terjual
@@ -283,14 +296,85 @@ class ReportService {
 					}
 				}
 
-				// Menghitung penjualan kotor (total amount / diambil dari final price)
+				// Penjualan kotor: total sebelum diskon (finalPrice + total diskon)
 				if (order.OrderDetail?.finalPrice && order.OrderDetail?.paymentStatus === ("SETTLEMENT" as PaymentStatus)) {
-					penjualanKotor += order.OrderDetail.finalPrice;
+					let totalDiscount = 0;
+					const otherFees = order.OrderDetail.otherFees;
+
+					// Cek apakah ada diskon di otherFees.discount
+					if (
+						otherFees &&
+						typeof otherFees === "object" &&
+						"discount" in otherFees &&
+						otherFees.discount &&
+						typeof otherFees.discount === "object"
+					) {
+						const discount = otherFees.discount as { type: string; value: number };
+						if (discount.type === "percent") {
+							totalDiscount =
+								(order.OrderDetail.finalPrice * (typeof discount.value === "number" ? discount.value : 0)) /
+								(100 - (typeof discount.value === "number" ? discount.value : 0));
+						} else if (discount.type === "nominal") {
+							totalDiscount = typeof discount.value === "number" ? discount.value : 0;
+						}
+					}
+
+					// Tambahkan diskon dari productDiscount jika ada
+					if (
+						otherFees &&
+						typeof otherFees === "object" &&
+						"productDiscount" in otherFees &&
+						Array.isArray(otherFees.productDiscount)
+					) {
+						// Filter hanya item yang bertipe object dan memiliki properti yang diperlukan
+						const productDiscountArr = (otherFees.productDiscount as unknown[]).filter(
+							(pd): pd is ProductDiscountItem =>
+								pd !== null &&
+								typeof pd === "object" &&
+								"discountType" in pd &&
+								"discountAmount" in pd &&
+								"produkVariantId" in pd,
+						);
+
+						for (const pd of productDiscountArr) {
+							if (pd.discountType === "percent") {
+								// Untuk diskon persen produk, perlu cari harga produk terkait
+								const orderProduct = order.OrderDetail.OrderProducts.find(
+									(op) => op.productVariantId === pd.produkVariantId,
+								);
+								if (orderProduct) {
+									let productPriceNormal = 0;
+									const productVariant = orderProduct.Product?.productVariants?.find(
+										(variant) => variant.id === orderProduct.productVariantId,
+									);
+									let productPrice = null;
+									if (productVariant && Array.isArray(productVariant.productPrices)) {
+										productPrice = productVariant.productPrices.length > 0 ? productVariant.productPrices[0] : null;
+									}
+									if (productPrice && typeof productPrice.normal === "number") {
+										productPriceNormal = productPrice.normal;
+									}
+									const qty = orderProduct.productQty || 0;
+									const discountAmount = (productPriceNormal * qty * Number(pd.discountAmount)) / 100;
+									totalDiscount += discountAmount;
+								}
+							} else if (pd.discountType === "nominal") {
+								const orderProduct = order.OrderDetail.OrderProducts.find(
+									(op) => op.productVariantId === pd.produkVariantId,
+								);
+								const qty = orderProduct ? orderProduct.productQty || 0 : 0;
+								totalDiscount += Number(pd.discountAmount) * qty;
+							}
+						}
+					}
+
+					// Penjualan kotor = finalPrice + totalDiscount
+					penjualanKotor += order.OrderDetail.finalPrice + totalDiscount;
 				} else {
 					penjualanKotor += 0;
 				}
 
-				// Menghitung penjualan bersih (final price dikurangi otherFees)
+				// Penjualan bersih: finalPrice dikurangi otherFees (sudah benar)
 				if (
 					order.OrderDetail?.finalPrice &&
 					order.OrderDetail.otherFees &&
@@ -319,13 +403,102 @@ class ReportService {
 
 					const netSale = order.OrderDetail.finalPrice - totalFees;
 					penjualanBersih += netSale;
+				}
 
-					// Menghitung laba kotor (total finalPrice dikurangi otherFees)
-					labaKotor += netSale;
+				// Laba kotor: productPrice.normal - (100% - diskon) * productQty
+				// Perbaikan agar price dinamis sesuai dengan productVariant dan productPrice yang dipilih pada orderProduct
+				if (
+					order.OrderDetail?.paymentStatus === ("SETTLEMENT" as PaymentStatus) &&
+					order.OrderDetail.OrderProducts &&
+					Array.isArray(order.OrderDetail.OrderProducts)
+				) {
+					for (const orderProduct of order.OrderDetail.OrderProducts) {
+						let productPriceNormal = 0;
+						const qty = orderProduct.productQty || 0;
+
+						// Cari productVariant yang sesuai dengan orderProduct
+						const productVariant = orderProduct.Product?.productVariants?.find(
+							(variant) => variant.id === orderProduct.productVariantId,
+						);
+
+						// Cari productPrice berdasarkan productVariant (bukan berdasarkan id)
+						let productPrice = null;
+						if (productVariant && Array.isArray(productVariant.productPrices)) {
+							// Ambil productPrice pertama dari productVariant terkait
+							productPrice = productVariant.productPrices.length > 0 ? productVariant.productPrices[0] : null;
+						}
+
+						// Ambil harga normal dari productPrice yang sesuai, fallback ke 0 jika tidak ada
+						if (productPrice && typeof productPrice.normal === "number") {
+							productPriceNormal = productPrice.normal;
+						}
+
+						let discountValue = 0;
+
+						// Cek apakah ada diskon di otherFees.discount
+						const otherFees = order.OrderDetail.otherFees;
+						let diskonSudahDihitung = false;
+						if (
+							otherFees &&
+							typeof otherFees === "object" &&
+							"discount" in otherFees &&
+							otherFees.discount &&
+							typeof otherFees.discount === "object"
+						) {
+							const discount = otherFees.discount as { type: string; value: number };
+							if (discount.type === "percent") {
+								discountValue = (typeof discount.value === "number" ? discount.value : 0) / 100;
+								// Laba kotor = harga normal * qty * (discountValue)
+								labaKotor += productPriceNormal * qty * discountValue;
+								diskonSudahDihitung = true;
+							} else if (discount.type === "nominal") {
+								// Laba kotor = diskon nominal * qty
+								labaKotor += (typeof discount.value === "number" ? discount.value : 0) * qty;
+								diskonSudahDihitung = true;
+							}
+						}
+
+						// Tambahkan perhitungan untuk productDiscount
+						if (
+							otherFees &&
+							typeof otherFees === "object" &&
+							"productDiscount" in otherFees &&
+							Array.isArray(otherFees.productDiscount)
+						) {
+							const productDiscountArr = (otherFees.productDiscount as unknown[]).filter(
+								(pd): pd is ProductDiscountItem =>
+									pd !== null &&
+									typeof pd === "object" &&
+									"discountType" in pd &&
+									"discountAmount" in pd &&
+									"produkVariantId" in pd,
+							);
+
+							const productDiscount = productDiscountArr.find(
+								(pd) => pd.produkVariantId === orderProduct.productVariantId,
+							);
+							if (productDiscount) {
+								if (productDiscount.discountType === "percent") {
+									const discountAmount = (productPriceNormal * qty * Number(productDiscount.discountAmount)) / 100;
+									labaKotor += discountAmount;
+									diskonSudahDihitung = true;
+								} else if (productDiscount.discountType === "nominal") {
+									const discountAmount = Number(productDiscount.discountAmount) * qty;
+									labaKotor += discountAmount;
+									diskonSudahDihitung = true;
+								}
+							}
+						}
+
+						// Jika tidak ada diskon sama sekali
+						if (!diskonSudahDihitung) {
+							labaKotor += 0;
+						}
+					}
 				}
 			}
 
-			// Menghitung laba bersih (penjualan bersih dikurangi expenses)
+			// Laba bersih: laba kotor dikurangi total pengeluaran (expenses)
 			labaBersih = labaKotor - totalExpenses;
 
 			// Mendapatkan informasi filter yang digunakan
