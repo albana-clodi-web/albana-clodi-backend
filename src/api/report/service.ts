@@ -366,6 +366,7 @@ class ReportService {
 				// Penjualan bersih : 157.500-20% karena itu diskon reseller dan hasilnya 126.000
 				// Laba kotor : 157.500-60% hasilnya 63.000. Kenapa 60% karena saya dapat diskon 40%.
 				// Laba bersih : laba kotor dikurangi pengeluaran. 63.000-10.300 = 52.700
+				// Laba kotor: harga normal - harga sesuai kategori customer (jika ada)
 				if (
 					order.OrderDetail?.paymentStatus === ("SETTLEMENT" as PaymentStatus) &&
 					order.OrderDetail.OrderProducts &&
@@ -373,6 +374,9 @@ class ReportService {
 				) {
 					for (const orderProduct of order.OrderDetail.OrderProducts) {
 						let productPriceNormal = 0;
+						let productPriceReseller = 0;
+						let productPriceAgent = 0;
+						let productPriceMember = 0;
 						const qty = orderProduct.productQty || 0;
 
 						// Cari productVariant yang sesuai dengan orderProduct
@@ -383,76 +387,34 @@ class ReportService {
 						// Cari productPrice berdasarkan productVariant (bukan berdasarkan id)
 						let productPrice = null;
 						if (productVariant && Array.isArray(productVariant.productPrices)) {
-							// Ambil productPrice pertama dari productVariant terkait
 							productPrice = productVariant.productPrices.length > 0 ? productVariant.productPrices[0] : null;
 						}
 
-						// Ambil harga normal dari productPrice yang sesuai, fallback ke 0 jika tidak ada
-						if (productPrice && typeof productPrice.normal === "number") {
-							productPriceNormal = productPrice.normal;
+						if (productPrice) {
+							if (typeof productPrice.normal === "number") productPriceNormal = productPrice.normal;
+							if (typeof productPrice.reseller === "number") productPriceReseller = productPrice.reseller;
+							if (typeof productPrice.agent === "number") productPriceAgent = productPrice.agent;
+							if (typeof productPrice.member === "number") productPriceMember = productPrice.member;
 						}
 
-						let discountValue = 0;
+						// Dapatkan kategori customer
+						const customerCategory = order.OrdererCustomer?.category as string | undefined;
 
-						// Cek apakah ada diskon di otherFees.discount
-						const otherFees = order.OrderDetail.otherFees;
-						let diskonSudahDihitung = false;
-						if (
-							otherFees &&
-							typeof otherFees === "object" &&
-							"discount" in otherFees &&
-							otherFees.discount &&
-							typeof otherFees.discount === "object"
-						) {
-							const discount = otherFees.discount as { type: string; value: number };
-							if (discount.type === "percent") {
-								discountValue = (typeof discount.value === "number" ? discount.value : 0) / 100;
-								// Laba kotor = harga normal * qty * (discountValue)
-								labaKotor += productPriceNormal * qty * discountValue;
-								diskonSudahDihitung = true;
-							} else if (discount.type === "nominal") {
-								// Laba kotor = diskon nominal * qty
-								labaKotor += (typeof discount.value === "number" ? discount.value : 0) * qty;
-								diskonSudahDihitung = true;
-							}
+						console.log({ customerCategory });
+						let hargaKategori = productPriceNormal;
+						if (customerCategory === "RESELLER") {
+							hargaKategori = productPriceReseller;
+						} else if (customerCategory === "AGENT") {
+							hargaKategori = productPriceAgent;
+						} else if (customerCategory === "MEMBER") {
+							hargaKategori = productPriceMember;
+						} else if (customerCategory === "CUSTOMER" || customerCategory === "DROPSHIPPER") {
+							hargaKategori = productPriceNormal;
 						}
+						console.log({ hargaKategori });
 
-						// Tambahkan perhitungan untuk productDiscount
-						if (
-							otherFees &&
-							typeof otherFees === "object" &&
-							"productDiscount" in otherFees &&
-							Array.isArray(otherFees.productDiscount)
-						) {
-							const productDiscountArr = (otherFees.productDiscount as unknown[]).filter(
-								(pd): pd is ProductDiscountItem =>
-									pd !== null &&
-									typeof pd === "object" &&
-									"discountType" in pd &&
-									"discountAmount" in pd &&
-									"produkVariantId" in pd,
-							);
-
-							const productDiscount = productDiscountArr.find(
-								(pd) => pd.produkVariantId === orderProduct.productVariantId,
-							);
-							if (productDiscount) {
-								if (productDiscount.discountType === "percent") {
-									const discountAmount = (productPriceNormal * qty * Number(productDiscount.discountAmount)) / 100;
-									labaKotor += discountAmount;
-									diskonSudahDihitung = true;
-								} else if (productDiscount.discountType === "nominal") {
-									const discountAmount = Number(productDiscount.discountAmount) * qty;
-									labaKotor += discountAmount;
-									diskonSudahDihitung = true;
-								}
-							}
-						}
-
-						// Jika tidak ada diskon sama sekali
-						if (!diskonSudahDihitung) {
-							labaKotor += 0;
-						}
+						const labaKotorProduk = (productPriceNormal - hargaKategori) * qty;
+						labaKotor += labaKotorProduk;
 					}
 				}
 			}
