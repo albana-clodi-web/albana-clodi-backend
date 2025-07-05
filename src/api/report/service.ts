@@ -400,7 +400,7 @@ class ReportService {
 						// Dapatkan kategori customer
 						const customerCategory = order.OrdererCustomer?.category as string | undefined;
 
-						console.log({ customerCategory });
+						// console.log({ customerCategory });
 						let hargaKategori = productPriceNormal;
 						if (customerCategory === "RESELLER") {
 							hargaKategori = productPriceReseller;
@@ -411,7 +411,7 @@ class ReportService {
 						} else if (customerCategory === "CUSTOMER" || customerCategory === "DROPSHIPPER") {
 							hargaKategori = productPriceNormal;
 						}
-						console.log({ hargaKategori });
+						// console.log({ hargaKategori });
 
 						const labaKotorProduk = (productPriceNormal - hargaKategori) * qty;
 						labaKotor += labaKotorProduk;
@@ -420,6 +420,8 @@ class ReportService {
 			}
 
 			// Laba bersih: laba kotor dikurangi total pengeluaran (expenses)
+			console.log({ totalExpenses });
+			console.log({ labaKotor });
 			labaBersih = labaKotor - totalExpenses;
 
 			// Mendapatkan informasi filter yang digunakan
