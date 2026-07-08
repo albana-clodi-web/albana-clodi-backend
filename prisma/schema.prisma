@@ -48,31 +48,123 @@ enum ProductDiscountTypes {
 }
 
 model User {
-  id          String    @id @default(uuid()) @db.Uuid
-  fullname    String?
-  email       String?   @unique
-  password    String?
-  phoneNumber String?
-  role        Roles?
-  createdAt   DateTime? @map("created_at")
+  id              String          @id @default(uuid()) @db.Uuid
+  fullname        String?
+  email           String?         @unique
+  password        String?
+  phoneNumber     String?
+  role            Roles?
+  isPlatformAdmin Boolean         @default(false) @map("is_platform_admin")
+  createdAt       DateTime?       @map("created_at")
+  userBrandRoles  UserBrandRole[]
 
   @@index([email])
   @@map("users")
 }
 
+model Brand {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  email       String?
+  phoneNumber String?  @map("phone_number")
+  address     String?  @db.Text
+  owner       String?
+  logo        String?
+  banner      String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  userBrandRoles UserBrandRole[]
+  roles          Role[]
+  products       Product[]
+  categories     Category[]
+  customers      Customer[]
+  orders         Order[]
+  expenses       Expense[]
+  paymentMethods PaymentMethod[]
+  salesChannels  SalesChannel[]
+  deliveryPlaces DeliveryPlace[]
+
+  @@map("brands")
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  resource    String
+  action      String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@index([resource])
+  @@map("permissions")
+}
+
+model Role {
+  id        String   @id @default(uuid()) @db.Uuid
+  brandId   String   @map("brand_id") @db.Uuid
+  name      String
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand           Brand            @relation(fields: [brandId], references: [id])
+  rolePermissions RolePermission[]
+  userBrandRoles  UserBrandRole[]
+
+  @@unique([brandId, name])
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserBrandRole {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  brandId   String   @map("brand_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  role  Role  @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, brandId])
+  @@map("user_brand_roles")
+}
+
 model Category {
   id        String    @id @default(uuid()) @db.Uuid
-  name      String?   @unique
+  brandId   String?   @map("brand_id") @db.Uuid
+  name      String?
+  brand     Brand?    @relation(fields: [brandId], references: [id])
   products  Product[]
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
+  @@unique([brandId, name])
+  @@index([brandId])
   @@index([name])
   @@map("categories")
 }
 
 model Product {
   id          String        @id @default(uuid()) @db.Uuid
+  brandId     String?       @map("brand_id") @db.Uuid
   categoryId  String?       @map("category_id") @db.Uuid
   name        String?
   type        ProductTypes?
@@ -82,12 +174,14 @@ model Product {
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
+  brand           Brand?            @relation(fields: [brandId], references: [id])
   category        Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   productVariants ProductVariant[]
   orderDetails    OrderDetail[]
   ProductDiscount ProductDiscount[]
   OrderProduct    OrderProduct[]
 
+  @@index([brandId])
   @@index([categoryId, name, isPublish])
   @@index([type, isPublish])
   @@index([createdAt, updatedAt])
@@ -153,6 +247,7 @@ model ProductVariant {
 
 model Customer {
   id            String              @id @default(uuid()) @db.Uuid
+  brandId       String?             @map("brand_id") @db.Uuid
   name          String?
   category      CustomerCategories?
   address       String?             @db.Text
@@ -169,9 +264,11 @@ model Customer {
   createdAt     DateTime            @default(now()) @map("created_at")
   updatedAt     DateTime            @updatedAt @map("updated_at")
 
+  brand                  Brand?  @relation(fields: [brandId], references: [id])
   ordersAsOrderer        Order[] @relation("OrdererCustomer")
   ordersAsDeliveryTarget Order[] @relation("DeliveryTargetCustomer")
 
+  @@index([brandId])
   @@index([name, email, phoneNumber])
   @@index([category, status])
   @@index([province, city, district, village])
@@ -182,6 +279,7 @@ model Customer {
 
 model Order {
   id                       String            @id @default(uuid()) @db.Uuid
+  brandId                  String?           @map("brand_id") @db.Uuid
   ordererCustomerId        String?           @map("orderer_customer_id") @db.Uuid
   deliveryTargetCustomerId String?           @map("delivery_target_customer_id") @db.Uuid
   deliveryPlaceId          String?           @map("delivery_place_id") @db.Uuid
@@ -190,6 +288,7 @@ model Order {
   note                     String?           @db.Text
   createdAt                DateTime          @default(now()) @map("created_at")
   updatedAt                DateTime          @updatedAt @map("updated_at")
+  brand                    Brand?            @relation(fields: [brandId], references: [id])
   SalesChannel             SalesChannel?     @relation(fields: [salesChannelId], references: [id])
   DeliveryPlace            DeliveryPlace?    @relation(fields: [deliveryPlaceId], references: [id])
   OrdererCustomer          Customer?         @relation("OrdererCustomer", fields: [ordererCustomerId], references: [id])
@@ -198,6 +297,7 @@ model Order {
   ShippingServices         ShippingService[]
   Installment              Installment?
 
+  @@index([brandId])
   @@index([ordererCustomerId])
   @@index([deliveryTargetCustomerId])
   @@index([orderDate])
@@ -304,6 +404,7 @@ model ShippingService {
 
 model PaymentMethod {
   id            String   @id @default(uuid()) @db.Uuid
+  brandId       String?  @map("brand_id") @db.Uuid
   name          String?
   bankName      String?  @map("bank_name")
   bankBranch    String?  @map("bank_branch")
@@ -311,9 +412,11 @@ model PaymentMethod {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
+  brand        Brand?        @relation(fields: [brandId], references: [id])
   orderDetails OrderDetail[]
   Installment  Installment[]
 
+  @@index([brandId])
   @@index([name])
   @@index([bankName])
   @@index([accountNumber])
@@ -322,6 +425,7 @@ model PaymentMethod {
 
 model DeliveryPlace {
   id            String   @id @default(uuid()) @db.Uuid
+  brandId       String?  @map("brand_id") @db.Uuid
   name          String?
   address       String?  @db.Text
   subdistrict   String?
@@ -331,8 +435,10 @@ model DeliveryPlace {
   description   String?
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
+  brand         Brand?   @relation(fields: [brandId], references: [id])
   Order         Order[]
 
+  @@index([brandId])
   @@index([name])
   @@index([email])
   @@index([phoneNumber])
@@ -343,6 +449,7 @@ model DeliveryPlace {
 
 model Expense {
   id                String    @id @default(uuid()) @db.Uuid
+  brandId           String?   @map("brand_id") @db.Uuid
   itemName          String?   @map("item_name")
   itemPrice         Float?    @map("item_price")
   expenseDate       DateTime? @map("expense_date")
@@ -353,6 +460,9 @@ model Expense {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
+  brand Brand? @relation(fields: [brandId], references: [id])
+
+  @@index([brandId])
   @@index([personResponsible])
   @@map("expenses")
 }
@@ -375,12 +485,15 @@ model ShopSetting {
 
 model SalesChannel {
   id        String   @id @default(uuid()) @db.Uuid
+  brandId   String?  @map("brand_id") @db.Uuid
   name      String?
   isActive  Boolean? @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  brand     Brand?   @relation(fields: [brandId], references: [id])
   Order     Order[]
 
+  @@index([brandId])
   @@index([name])
   @@index([isActive])
   @@map("sales_channels")
